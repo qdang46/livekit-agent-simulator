@@ -1,0 +1,72 @@
+import pytest
+
+from livekit_agent_simulator.config import ConfigError, config_snapshot, load_config
+
+VALID_CONFIG = """
+project: demo
+livekit:
+  url: "wss://demo.livekit.cloud"
+  api_key: "APIkey"
+  api_secret: "secret"
+  agent_name: "voice-ai-worker-local"
+simulator:
+  google_api_key: "AIzaTest"
+  language: "ja-JP"
+  voice:
+    model: "gemini-3.1-flash-live-preview"
+    voice: "Puck"
+judge:
+  model: "gemini-2.5-flash"
+observe:
+  timezone: "Asia/Ho_Chi_Minh"
+  data_topics: ["voice_ai.flow"]
+  tool_event_patterns:
+    - match: { topic: "voice_ai.flow", type: "tool_started" }
+      emit: tool.start
+  silence_threshold_ms: 3000
+"""
+
+
+def _write(tmp_path, text):
+    dot = tmp_path / ".agent-sim"
+    dot.mkdir()
+    (dot / "config.yaml").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_load_valid_config(tmp_path):
+    cfg = load_config(_write(tmp_path, VALID_CONFIG))
+    assert cfg.livekit.agent_name == "voice-ai-worker-local"
+    assert cfg.livekit.agent_join_timeout_ms == 25_000  # default
+    assert cfg.simulator.voice.model == "gemini-3.1-flash-live-preview"
+    assert cfg.judge is not None and cfg.judge.model == "gemini-2.5-flash"
+    assert cfg.observe.silence_threshold_ms == 3000
+    assert cfg.observe.tool_event_patterns[0].emit == "tool.start"
+    assert cfg.sqlite_path == tmp_path / ".agent-sim" / "runs.sqlite"
+
+
+def test_missing_config_file(tmp_path):
+    with pytest.raises(ConfigError, match="lk-sim init"):
+        load_config(tmp_path)
+
+
+def test_missing_agent_name(tmp_path):
+    broken = VALID_CONFIG.replace('agent_name: "voice-ai-worker-local"', "")
+    with pytest.raises(ConfigError, match="livekit.agent_name"):
+        load_config(_write(tmp_path, broken))
+
+
+def test_missing_simulator_key(tmp_path):
+    broken = VALID_CONFIG.replace('google_api_key: "AIzaTest"', "")
+    with pytest.raises(ConfigError, match="simulator.google_api_key"):
+        load_config(_write(tmp_path, broken))
+
+
+def test_snapshot_never_leaks_secrets(tmp_path):
+    cfg = load_config(_write(tmp_path, VALID_CONFIG))
+    snap = config_snapshot(cfg)
+    text = str(snap)
+    assert "secret" not in text
+    assert "AIzaTest" not in text
+    assert "APIkey" not in text
+    assert snap["livekit"]["agent_name"] == "voice-ai-worker-local"
