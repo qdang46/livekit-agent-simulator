@@ -116,6 +116,10 @@ class Observer:
     def agent_has_spoken(self) -> bool:
         return self._agent_has_spoken
 
+    @property
+    def user_has_spoken(self) -> bool:
+        return self._user_has_spoken
+
     def agent_active_duration_ms(self) -> int | None:
         if self._agent_active_since_mono is None:
             return None

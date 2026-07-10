@@ -1,0 +1,55 @@
+"""Nudge the simulated caller to speak after the agent greets first."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .gemini.live_session import GeminiCallerBridge
+    from .livekit.observer import Observer
+    from .logging.event_writer import EventWriter
+
+AGENT_GREETED_NUDGE = (
+    "(The agent has finished greeting you. Respond now in Japanese per your persona.)"
+)
+
+
+async def nudge_caller_after_agent_greeting(
+    observer: "Observer",
+    bridge: "GeminiCallerBridge",
+    writer: "EventWriter",
+    *,
+    first_speaker: str,
+    debounce_s: float = 1.0,
+    poll_s: float = 0.15,
+) -> None:
+    """When first_speaker is agent, persona-only runs stall without a text bootstrap."""
+    if first_speaker != "agent":
+        return
+
+    nudged = False
+    while not bridge.end_call.is_set():
+        if nudged:
+            return
+        if observer.agent_has_spoken and not observer.user_has_spoken:
+            await asyncio.sleep(debounce_s)
+            if bridge.end_call.is_set() or observer.user_has_spoken:
+                return
+            try:
+                await bridge.inject_cue(
+                    AGENT_GREETED_NUDGE,
+                    label="agent_greeted_nudge",
+                )
+                writer.emit(
+                    "sim.agent_greeted_nudge",
+                    spec={"debounce_s": debounce_s},
+                    source="sim",
+                    include_dialogue=False,
+                )
+                nudged = True
+                return
+            except RuntimeError:
+                await asyncio.sleep(poll_s)
+                continue
+        await asyncio.sleep(poll_s)

@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from .caller_nudge import nudge_caller_after_agent_greeting
 from .config import SimConfig, config_snapshot
 from .gemini.judge import judge_run
 from .gemini.live_session import GeminiCallerBridge
@@ -156,11 +157,22 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 script_task = asyncio.create_task(script_runner.run(), name="script-runner")
 
             bridge_task = asyncio.create_task(bridge.run(), name="gemini-bridge")
+            nudge_task = asyncio.create_task(
+                nudge_caller_after_agent_greeting(
+                    observer,
+                    bridge,
+                    writer,
+                    first_speaker=run.first_speaker,
+                ),
+                name="agent-greeted-nudge",
+            )
             try:
                 end_reason = await _conversation_loop(
                     scenario, run, observer, bridge, writer, cfg.observe.silence_threshold_ms / 1000
                 )
             finally:
+                nudge_task.cancel()
+                await asyncio.gather(nudge_task, return_exceptions=True)
                 if script_runner is not None:
                     script_runner.stop()
                 if script_task is not None:
