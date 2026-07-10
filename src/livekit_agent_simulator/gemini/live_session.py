@@ -62,6 +62,7 @@ class GeminiCallerBridge:
         self._source: rtc.AudioSource | None = None
         self._sim_out_text = ""
         self._live_session: Any | None = None
+        self._suppress_output_until_mono: float | None = None
 
     # ------------------------------------------------------------------ setup
 
@@ -146,6 +147,22 @@ class GeminiCallerBridge:
 
     def stop(self) -> None:
         self.end_call.set()
+
+    def suppress_persona_output(self, duration_ms: int) -> None:
+        """Block Gemini audio/text to the room after a scripted PCM cue (caller silence)."""
+        if duration_ms <= 0:
+            return
+        until = time.monotonic() + duration_ms / 1000
+        prev = self._suppress_output_until_mono
+        self._suppress_output_until_mono = until if prev is None else max(prev, until)
+
+    def _persona_output_suppressed(self) -> bool:
+        if self._suppress_output_until_mono is None:
+            return False
+        if time.monotonic() >= self._suppress_output_until_mono:
+            self._suppress_output_until_mono = None
+            return False
+        return True
 
     async def inject_cue(
         self,
@@ -240,13 +257,14 @@ class GeminiCallerBridge:
                     # Caller-side transcriptions: what the sim heard itself say (output)
                     # and what it heard from the agent (input).
                     if sc.output_transcription and sc.output_transcription.text:
-                        self._sim_out_text += sc.output_transcription.text
-                        self.observer.on_transcript(
-                            "user",
-                            self._sim_out_text.replace(END_CALL_TOKEN, "").strip(),
-                            final=False,
-                            source="sim.gemini",
-                        )
+                        if not self._persona_output_suppressed():
+                            self._sim_out_text += sc.output_transcription.text
+                            self.observer.on_transcript(
+                                "user",
+                                self._sim_out_text.replace(END_CALL_TOKEN, "").strip(),
+                                final=False,
+                                source="sim.gemini",
+                            )
                     if sc.input_transcription and sc.input_transcription.text:
                         # Agent speech as heard by the sim. lk.transcription is the primary
                         # agent transcript source; keep this as a low-priority mirror.
@@ -259,10 +277,13 @@ class GeminiCallerBridge:
                     if sc.model_turn:
                         for part in sc.model_turn.parts or []:
                             blob = part.inline_data
-                            if blob and blob.data:
+                            if blob and blob.data and not self._persona_output_suppressed():
                                 await self._play_pcm(source, blob.data)
 
                     if sc.turn_complete:
+                        if self._persona_output_suppressed():
+                            self._sim_out_text = ""
+                            continue
                         text = self._sim_out_text.strip()
                         if text:
                             ended = END_CALL_TOKEN in text

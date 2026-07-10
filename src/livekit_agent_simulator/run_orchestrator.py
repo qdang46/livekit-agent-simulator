@@ -25,6 +25,7 @@ from .livekit.observer import Observer
 from .logging.event_writer import EventWriter
 from .logging.sqlite_store import RunStore
 from .preflight import run_preflight
+from .plugins.loader import ensure_plugins_loaded
 from .scenario import Scenario, SimulatorSpec, find_scenario
 from .script_runner import ScriptRunner, evaluate_script_log
 
@@ -35,13 +36,18 @@ def new_run_id() -> str:
 
 
 async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
-    """Run one scenario. Returns {run_id, status, report_dir, summary}."""
+    """Run one scenario by id from `.agent-sim/scenarios/`."""
     preflight, _ = await run_preflight(cfg.project_root, connectivity=True)
     if not preflight.ok:
         failed = [c for c in preflight.checks if c["status"] == "fail"]
         raise RuntimeError("Preflight failed: " + "; ".join(f"{c['name']}: {c['detail']}" for c in failed))
-
     scenario = find_scenario(cfg.scenarios_dir, scenario_id)
+    return await run_scenario_instance(cfg, scenario)
+
+
+async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str, Any]:
+    """Run a parsed Scenario (file or in-memory). Returns {run_id, status, report_dir, summary}."""
+    plugin_load = ensure_plugins_loaded(cfg.project_root, scenario.plugin_modules)
     run = scenario.run_spec
     dispatch_metadata = scenario.dispatch_metadata(cfg.livekit.dispatch_metadata)
     run_id = new_run_id()
@@ -68,6 +74,7 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
         "agent_name": cfg.livekit.agent_name,
         "started_utc": started_utc,
         "config_snapshot": config_snapshot(cfg),
+        "plugins_loaded": plugin_load,
     }
 
     status = "failed"
@@ -138,12 +145,13 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
             script_runner: ScriptRunner | None = None
             script_task: asyncio.Task | None = None
             if scenario.script_steps:
+                scenario_dir = scenario.path.parent if scenario.path.parent.exists() else cfg.scenarios_dir
                 script_runner = ScriptRunner(
                     scenario.script_steps,
                     observer,
                     bridge,
                     writer,
-                    scenario_dir=scenario.path.parent,
+                    scenario_dir=scenario_dir,
                 )
                 script_task = asyncio.create_task(script_runner.run(), name="script-runner")
 
@@ -175,9 +183,16 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
             if meta.get("room_name"):
                 await adapter.delete_room(meta["room_name"])
 
-    if status == "done" and scenario.script_steps:
+    has_script_verify = scenario.script_verify is not None and (
+        scenario.script_steps or bool(scenario.script_verify.plugins)
+    )
+    if status == "done" and has_script_verify:
         script_verify = evaluate_script_log(
-            writer.events, scenario.script_steps, scenario.script_verify
+            writer.events,
+            scenario.script_steps,
+            scenario.script_verify,
+            scenario=scenario,
+            project_root=cfg.project_root,
         )
         writer.emit("script.verify", spec=script_verify, include_dialogue=False)
         summary_extra = {"script_verify": script_verify}

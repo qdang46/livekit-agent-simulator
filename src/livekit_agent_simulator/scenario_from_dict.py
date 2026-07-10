@@ -1,0 +1,143 @@
+"""Build a Scenario from a dict (dynamic API — no JSONL file required)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from .scenario import (
+    API_VERSION,
+    DispatchSpec,
+    ExecuteSpec,
+    Scenario,
+    ScenarioError,
+    SimulatorSpec,
+)
+from .script_parse import parse_script_steps, parse_script_verify
+
+
+def scenario_from_dict(
+    data: dict[str, Any],
+    *,
+    path: Path | None = None,
+    path_label: str = "scenario_dict",
+) -> Scenario:
+    """Parse the same shape as export_scenario / JSONL sections (nested dict)."""
+    metadata = data.get("metadata") or {}
+    scenario_id = data.get("id") or metadata.get("id")
+    if not scenario_id:
+        raise ScenarioError(f"{path_label}: id or metadata.id is required")
+
+    sim_raw = data.get("simulator") or {}
+    simulator = SimulatorSpec(
+        max_turns=int(sim_raw.get("max_turns", 6)),
+        timeout_s=int(sim_raw.get("timeout_s", 120)),
+        first_speaker=str(sim_raw.get("first_speaker", "agent")),
+    )
+
+    execute: ExecuteSpec | None = None
+    ex_raw = data.get("execute")
+    if isinstance(ex_raw, dict):
+        execute = ExecuteSpec(
+            max_turns=int(ex_raw["max_turns"]) if ex_raw.get("max_turns") is not None else None,
+            timeout_s=int(ex_raw["timeout_s"]) if ex_raw.get("timeout_s") is not None else None,
+            first_speaker=str(ex_raw["first_speaker"]) if ex_raw.get("first_speaker") else None,
+        )
+
+    run_raw = data.get("run")
+    if isinstance(run_raw, dict) and execute is None:
+        execute = ExecuteSpec(
+            max_turns=int(run_raw["max_turns"]) if run_raw.get("max_turns") is not None else None,
+            timeout_s=int(run_raw["timeout_s"]) if run_raw.get("timeout_s") is not None else None,
+            first_speaker=str(run_raw["first_speaker"]) if run_raw.get("first_speaker") else None,
+        )
+
+    dispatch: DispatchSpec | None = None
+    disp_raw = data.get("dispatch")
+    if isinstance(disp_raw, dict):
+        meta = disp_raw.get("metadata")
+        if meta is not None and str(meta).strip():
+            dispatch = DispatchSpec(metadata=str(meta).strip())
+
+    script_steps = []
+    script_verify = None
+    script_raw = data.get("script")
+    if isinstance(script_raw, dict):
+        script_steps = parse_script_steps(script_raw, path_label)
+        script_verify = parse_script_verify(script_raw.get("verify"))
+
+    persona = dict(data.get("persona") or {})
+    if not persona.get("brief"):
+        raise ScenarioError(f"{path_label}: persona.brief is required")
+
+    plugin_modules = [str(m) for m in (data.get("plugin_modules") or data.get("plugins") or [])]
+
+    scenario = Scenario(
+        id=str(scenario_id),
+        path=path or Path(f"{scenario_id}.jsonl"),
+        locale=str(data.get("locale") or metadata.get("locale", "ja-JP")),
+        tags=[str(t) for t in (data.get("tags") or metadata.get("tags") or [])],
+        persona=persona,
+        context=dict(data.get("context") or {}),
+        simulator=simulator,
+        execute=execute,
+        dispatch=dispatch,
+        pass_criteria=[str(c) for c in (data.get("pass_criteria") or [])],
+        script_steps=script_steps,
+        script_verify=script_verify,
+        plugin_modules=plugin_modules,
+    )
+
+    if scenario.simulator.first_speaker not in ("agent", "user"):
+        raise ScenarioError(f"{path_label}: simulator.first_speaker must be agent or user")
+    if scenario.run_spec.first_speaker not in ("agent", "user"):
+        raise ScenarioError(f"{path_label}: execute.first_speaker must be agent or user")
+    if dispatch and dispatch.metadata:
+        import json
+
+        try:
+            json.loads(dispatch.metadata)
+        except json.JSONDecodeError as e:
+            raise ScenarioError(f"{path_label}: dispatch.metadata must be valid JSON — {e}") from e
+
+    return scenario
+
+
+def export_scenario_dict(scenario: Scenario) -> dict[str, Any]:
+    """Full structured export including script steps (for dev tooling)."""
+    base = scenario.export_dict()
+    base["persona"] = scenario.persona
+    base["context"] = scenario.context
+    base["plugin_modules"] = list(scenario.plugin_modules)
+    if scenario.dispatch and scenario.dispatch.metadata:
+        base["dispatch"] = {"metadata": scenario.dispatch.metadata}
+    if scenario.script_steps:
+        base["script"] = {
+            "steps": [
+                {
+                    "id": s.id,
+                    "trigger": s.trigger,
+                    "delay_ms": s.delay_ms,
+                    "say": s.say,
+                    "label": s.label,
+                    "once": s.once,
+                    "min_agent_active_ms": s.min_agent_active_ms,
+                    "delivery": s.delivery,
+                    "asset": s.asset,
+                    "silence_after_cue_ms": s.silence_after_cue_ms,
+                }
+                for s in scenario.script_steps
+            ],
+            "verify": None
+            if scenario.script_verify is None
+            else {
+                "require_during_agent_speech": scenario.script_verify.require_during_agent_speech,
+                "min_agent_finals_after_first_cue": scenario.script_verify.min_agent_finals_after_first_cue,
+                "min_user_finals_after_first_cue": scenario.script_verify.min_user_finals_after_first_cue,
+                "min_interruptions": scenario.script_verify.min_interruptions,
+                "max_interruptions": scenario.script_verify.max_interruptions,
+                "plugins": list(scenario.script_verify.plugins),
+                "plugin_options": dict(scenario.script_verify.plugin_options),
+            },
+        }
+    return base

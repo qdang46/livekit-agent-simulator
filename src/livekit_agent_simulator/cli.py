@@ -81,6 +81,16 @@ def scenarios_cmd(root: Optional[Path] = ROOT_OPTION) -> None:
 
 
 @app.command()
+def plugins(root: Optional[Path] = ROOT_OPTION) -> None:
+    """List verify plugins (.agent-sim/plugins + entry-points)."""
+    try:
+        _print(ops.list_plugins(_root(root)))
+    except ConfigError as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
 def validate(scenario_id: str, root: Optional[Path] = ROOT_OPTION) -> None:
     """Validate one scenario."""
     result = ops.validate_scenario(_root(root), scenario_id)

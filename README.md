@@ -64,6 +64,7 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim report <run-id>
 - [AGENTS.md](AGENTS.md) — rules for AI agents (research loop, package boundary)
 - [docs/smoke-test.md](docs/smoke-test.md) — first end-to-end run
 - [docs/portability.md](docs/portability.md) — consumer-specific dispatch / observe setup
+- [docs/plugins.md](docs/plugins.md) — verify plugins + Python API
 
 ## CI / Release
 

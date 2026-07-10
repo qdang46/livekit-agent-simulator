@@ -80,3 +80,4 @@ lk-sim execute smoke-hello --root /path/to/target
 
 Expect `status: done`, optional judge verdict, sensible `turn_count`, exit code 0.
 Script scenarios: check `summary.script_verify.pass` in the report (no judge required).
+Adaptive A/B/C use transcript finals and `during_agent_speech` on the scripted cue — not worker SDK telemetry.

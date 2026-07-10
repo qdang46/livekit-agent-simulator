@@ -47,6 +47,18 @@ def export_scenario(project_root: str, scenario_id: str) -> dict[str, Any]:
 
 
 @mcp.tool
+def list_plugins(project_root: str) -> dict[str, Any]:
+    """List registered verify plugins and local `.agent-sim/plugins/*.py` modules."""
+    return ops.list_plugins(project_root)
+
+
+@mcp.tool
+async def run_scenario_dict(project_root: str, scenario: dict[str, Any]) -> dict[str, Any]:
+    """Run an in-memory scenario dict (no JSONL file). Same shape as export_scenario."""
+    return await ops.run_scenario_dict(project_root, scenario)
+
+
+@mcp.tool
 async def run_scenario(project_root: str, scenario_id: str) -> dict[str, Any]:
     """Run a simulation (alias: prefer execute_scenario for validate-then-run)."""
     return await ops.run_scenario(project_root, scenario_id)

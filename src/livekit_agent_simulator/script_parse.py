@@ -10,6 +10,20 @@ def parse_script_verify(raw: Any) -> ScriptVerifySpec | None:
         return None
     if not isinstance(raw, dict):
         raise ValueError("Script.spec.verify must be an object")
+    plugins_raw = raw.get("plugins")
+    if plugins_raw is None and raw.get("plugin"):
+        plugins_raw = [raw.get("plugin")]
+    plugins: tuple[str, ...] = ()
+    if plugins_raw is not None:
+        if not isinstance(plugins_raw, list):
+            raise ValueError("Script.spec.verify.plugins must be an array of plugin names")
+        plugins = tuple(str(p).strip() for p in plugins_raw if str(p).strip())
+
+    options_raw = raw.get("plugin_options")
+    if options_raw is not None and not isinstance(options_raw, dict):
+        raise ValueError("Script.spec.verify.plugin_options must be an object")
+    plugin_options = dict(options_raw) if isinstance(options_raw, dict) else {}
+
     return ScriptVerifySpec(
         require_during_agent_speech=bool(raw.get("require_during_agent_speech", True)),
         min_agent_finals_after_first_cue=int(raw.get("min_agent_finals_after_first_cue", 0)),
@@ -20,6 +34,8 @@ def parse_script_verify(raw: Any) -> ScriptVerifySpec | None:
         max_interruptions=int(raw["max_interruptions"])
         if raw.get("max_interruptions") is not None
         else None,
+        plugins=plugins,
+        plugin_options=plugin_options,
     )
 
 
@@ -65,6 +81,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 min_agent_active_ms=int(raw.get("min_agent_active_ms", 400)),
                 delivery=delivery,
                 asset=str(asset).strip() if asset else None,
+                silence_after_cue_ms=int(raw.get("silence_after_cue_ms", 0)),
             )
         )
     return steps

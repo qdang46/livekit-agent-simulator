@@ -24,7 +24,7 @@ from typing import Any
 from .script_runner import ScriptStep, ScriptVerifySpec
 
 API_VERSION = "agent-sim/v1"
-KNOWN_KINDS = {"Persona", "Context", "Simulator", "Execute", "Dispatch", "PassCriteria", "Script"}
+KNOWN_KINDS = {"Persona", "Context", "Simulator", "Execute", "Dispatch", "PassCriteria", "Script", "Plugins"}
 
 
 class ScenarioError(Exception):
@@ -68,6 +68,7 @@ class Scenario:
     pass_criteria: list[str] = field(default_factory=list)
     script_steps: list[Any] = field(default_factory=list)
     script_verify: ScriptVerifySpec | None = None
+    plugin_modules: list[str] = field(default_factory=list)
 
     @property
     def run_spec(self) -> SimulatorSpec:
@@ -118,6 +119,7 @@ class Scenario:
             },
             "pass_criteria": self.pass_criteria,
             "script_steps": len(self.script_steps),
+            "plugin_modules": list(self.plugin_modules),
             "script_verify": None
             if self.script_verify is None
             else {
@@ -126,6 +128,7 @@ class Scenario:
                 "min_user_finals_after_first_cue": self.script_verify.min_user_finals_after_first_cue,
                 "min_interruptions": self.script_verify.min_interruptions,
                 "max_interruptions": self.script_verify.max_interruptions,
+                "plugins": list(self.script_verify.plugins),
             },
         }
 
@@ -245,6 +248,11 @@ def parse_scenario(path: Path | str) -> Scenario:
                 scenario.script_verify = parse_script_verify(spec.get("verify"))
             except ValueError as e:
                 raise ScenarioError(str(e)) from e
+        elif kind == "Plugins":
+            modules = spec.get("modules") or spec.get("load") or []
+            if not isinstance(modules, list):
+                raise ScenarioError(f"{path}:{line_no}: Plugins.spec.modules must be an array")
+            scenario.plugin_modules.extend(str(m) for m in modules)
 
     if not scenario.persona.get("brief"):
         raise ScenarioError(f"{path}: Persona.spec.brief is required — the simulator needs a caller brief")

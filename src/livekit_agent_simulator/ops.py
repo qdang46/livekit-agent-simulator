@@ -10,7 +10,11 @@ from typing import Any
 from .config import DOT_FOLDER, ConfigError, load_config
 from .logging.sqlite_store import RunStore
 from .scenario import ScenarioError, find_scenario, list_scenarios as _list_scenarios, parse_scenario
+from .scenario_from_dict import export_scenario_dict, scenario_from_dict
 from . import run_orchestrator
+from .preflight import run_preflight
+from .plugins.loader import ensure_plugins_loaded
+from .plugins.registry import list_verify_plugins
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 
@@ -23,6 +27,7 @@ def init_project(project_root: Path | str) -> dict[str, Any]:
 
     (dot / "scenarios").mkdir(parents=True, exist_ok=True)
     (dot / "reports").mkdir(parents=True, exist_ok=True)
+    (dot / "plugins").mkdir(parents=True, exist_ok=True)
 
     config_dst = dot / "config.yaml"
     if not config_dst.exists():
@@ -33,6 +38,11 @@ def init_project(project_root: Path | str) -> dict[str, Any]:
     if not smoke_dst.exists():
         shutil.copyfile(TEMPLATES_DIR / "smoke-hello.jsonl", smoke_dst)
         created.append(str(smoke_dst))
+
+    plugin_dst = dot / "plugins" / "example_verify.py"
+    if not plugin_dst.exists():
+        shutil.copyfile(TEMPLATES_DIR / "plugins" / "example_verify.py", plugin_dst)
+        created.append(str(plugin_dst))
 
     gitignore = root / ".gitignore"
     line = f"{DOT_FOLDER}/"
@@ -86,6 +96,14 @@ def validate_scenario(project_root: Path | str, scenario_id: str) -> dict[str, A
             "first_speaker=agent with no Dispatch.metadata — many agents wait for caller audio. "
             "Add Execute.first_speaker=user or a project-specific Dispatch.metadata JSON."
         )
+    if s.plugin_modules or (s.script_verify and s.script_verify.plugins):
+        load_info = ensure_plugins_loaded(cfg.project_root, s.plugin_modules)
+        known = set(load_info.get("verify_plugins") or [])
+        for name in (s.script_verify.plugins if s.script_verify else ()):
+            if name not in known:
+                warnings.append(f"verify plugin {name!r} is not registered (load errors: {load_info.get('errors')})")
+        if load_info.get("errors"):
+            warnings.extend(f"plugin load: {e}" for e in load_info["errors"])
     return {
         "valid": True,
         "id": s.id,
@@ -107,7 +125,43 @@ def export_scenario(project_root: Path | str, scenario_id: str) -> dict[str, Any
         s = find_scenario(cfg.scenarios_dir, scenario_id)
     except ScenarioError as e:
         return {"found": False, "scenario_id": scenario_id, "error": str(e)}
-    return {"found": True, **s.export_dict()}
+    return {"found": True, **export_scenario_dict(s)}
+
+
+def list_plugins(project_root: Path | str) -> dict[str, Any]:
+    """List registered verify plugins after loading entry-points and local modules."""
+    cfg = load_config(project_root)
+    local_dir = cfg.dot_dir / "plugins"
+    local_files = sorted(p.stem for p in local_dir.glob("*.py") if not p.name.startswith("_"))
+    load_info = ensure_plugins_loaded(cfg.project_root, local_files)
+    return {
+        "verify_plugins": list_verify_plugins(),
+        "local_modules": local_files,
+        "load": load_info,
+        "entry_point_group": "lk_sim.plugins",
+    }
+
+
+async def run_scenario_dict(project_root: Path | str, scenario: dict[str, Any]) -> dict[str, Any]:
+    """Run a scenario built in Python (same fields as export_scenario / JSONL sections)."""
+    cfg = load_config(project_root)
+    preflight, _ = await run_preflight(cfg.project_root, connectivity=True)
+    if not preflight.ok:
+        failed = [c for c in preflight.checks if c["status"] == "fail"]
+        raise RuntimeError("Preflight failed: " + "; ".join(f"{c['name']}: {c['detail']}" for c in failed))
+    scenario_id = str(scenario.get("id") or (scenario.get("metadata") or {}).get("id", "dynamic"))
+    s = scenario_from_dict(scenario, path=cfg.scenarios_dir / f"{scenario_id}.jsonl")
+    return await run_orchestrator.run_scenario_instance(cfg, s)
+
+
+async def execute_scenario_dict(project_root: Path | str, scenario: dict[str, Any]) -> dict[str, Any]:
+    """Validate dict-shaped scenario then run (no JSONL file on disk required)."""
+    try:
+        scenario_from_dict(scenario)
+    except ScenarioError as e:
+        return {"executed": False, "validation": {"valid": False, "error": str(e)}}
+    result = await run_scenario_dict(project_root, scenario)
+    return {"executed": True, "validation": {"valid": True}, **result}
 
 
 async def execute_scenario(project_root: Path | str, scenario_id: str) -> dict[str, Any]:
@@ -295,10 +349,13 @@ __all__ = [
     "ConfigError",
     "init_project",
     "list_scenarios",
+    "list_plugins",
     "validate_scenario",
     "export_scenario",
     "run_scenario",
+    "run_scenario_dict",
     "execute_scenario",
+    "execute_scenario_dict",
     "execute_scenarios",
     "get_run_status",
     "get_run_log",
