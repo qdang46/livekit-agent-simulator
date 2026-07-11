@@ -18,6 +18,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build report player (shipped in wheel)
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+          test -f ../templates/report-player/index.html
+          test -d ../templates/report-player/assets
+          ls -la ../templates/report-player/assets/
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -32,17 +53,35 @@ jobs:
       - name: Run tests
         run: uv run pytest -q
 
-      - name: Build package
+      - name: CLI smoke
+        run: uv run lk-sim --help
+
+      - name: Build package (sdist + wheel)
         run: uv build
+
+      - name: Assert wheel ships report-player + entry points
+        run: |
+          set -euo pipefail
+          WHEEL=$(ls dist/*.whl | head -1)
+          echo "Inspecting: $WHEEL"
+          unzip -l "$WHEEL" | tee /tmp/wheel-list.txt
+          grep -q 'livekit_agent_simulator/templates/report-player/index.html' /tmp/wheel-list.txt
+          grep -q 'livekit_agent_simulator/templates/report-player/assets/' /tmp/wheel-list.txt
+          grep -q 'livekit_agent_simulator/templates/cues/' /tmp/wheel-list.txt
+          unzip -p "$WHEEL" '*/entry_points.txt' | tee /tmp/entry_points.txt
+          grep -q '^lk-sim = ' /tmp/entry_points.txt
+          grep -q '^livekit-agent-simulator-mcp = ' /tmp/entry_points.txt
+          echo "Wheel OK: report-player + lk-sim console scripts present."
 
       - name: Publish to PyPI
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          if [ -z "$UV_PUBLISH_TOKEN" ]; then
-            echo "PYPI_API_TOKEN not configured — skipping PyPI publish (GitHub Release only)."
+          if [ -z "${UV_PUBLISH_TOKEN:-}" ]; then
+            echo "PYPI_API_TOKEN not configured — skipping PyPI publish (GitHub Release still created)."
             exit 0
           fi
+          # Keep existing artifacts; do not clean dist/
           uv publish
 
       - name: Create GitHub Release
@@ -52,12 +91,21 @@ jobs:
           files: dist/*
 
       - name: Release summary
+        if: always()
         run: |
           {
             echo "## Release"
             echo ""
             echo "Tag: \`${GITHUB_REF_NAME}\`"
             echo ""
+            echo "### Pipeline"
+            echo "- pnpm web build → templates/report-player/"
+            echo "- pytest"
+            echo "- uv build (sdist + wheel)"
+            echo "- wheel assert (report-player + lk-sim entry points)"
+            echo "- PyPI publish if \`PYPI_API_TOKEN\` set (not deleted if missing)"
+            echo "- GitHub Release with dist/*"
+            echo ""
             echo "### Artifacts"
-            ls -la dist/
+            ls -la dist/ 2>/dev/null || echo "(no dist/)"
           } >> "$GITHUB_STEP_SUMMARY"

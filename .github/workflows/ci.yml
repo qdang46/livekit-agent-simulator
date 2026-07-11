@@ -98,6 +98,18 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
+      - name: Assert wheel ships report-player + entry points
+        run: |
+          set -euo pipefail
+          WHEEL=$(ls dist/*.whl | head -1)
+          echo "Inspecting: $WHEEL"
+          unzip -l "$WHEEL" | tee /tmp/wheel-list.txt
+          grep -q 'livekit_agent_simulator/templates/report-player/index.html' /tmp/wheel-list.txt
+          grep -q 'livekit_agent_simulator/templates/report-player/assets/' /tmp/wheel-list.txt
+          unzip -p "$WHEEL" '*/entry_points.txt' | tee /tmp/entry_points.txt
+          grep -q '^lk-sim = ' /tmp/entry_points.txt
+          echo "Wheel OK: report-player + lk-sim present."
+
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -116,5 +128,6 @@ jobs:
             echo "| report player (Vite) | required |"
             echo "| pytest (3.10, 3.12) | required |"
             echo "| \`uv build\` | required |"
+            echo "| wheel has report-player + lk-sim | required |"
             echo "| artifact | \`dist-py312\` |"
           } >> "$GITHUB_STEP_SUMMARY"
