@@ -25,7 +25,8 @@
 // === Script (optional) — timed cues; omit if speech_conditions/Behavior enough ===
 // trigger: agent_speaking | silence | time
 // barge_in + with_blip (default true for gemini_text)
-// asset: builtin:noise.loud | voice.barge_short | .agent-sim/cues/file.wav
+// asset: builtin:voice.barge_short | builtin:noise.loud | .agent-sim/cues/file.wav
+// speech_conditions.barge_asset: builtin:voice.barge_short (vocal; with_blip defaults off for voice.*)
 // {"kind":"Script","spec":{"steps":[],"verify":{"require_during_agent_speech":false,"min_agent_finals_after_barge_in":0}}}
 // === Assert — tools / transcript / outcomes (recovery | transcript_contains | llm_bool) ===
 {"kind":"Assert","spec":{"tools":[],"transcript":[{"role":"agent","contains_any":["help","support","hello","hi"]}],"outcomes":[{"id":"agent_spoke","type":"transcript_contains","role":"agent","phrases":["a","e","i","o","u"]}]}}

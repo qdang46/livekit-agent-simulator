@@ -97,23 +97,27 @@ lk-sim scenario-init my-case --root /path/to/target
 
 - **constraints[]** → hard rules in Gemini system prompt  
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
+  - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
 - **Behavior** kind → explicit barge/silence/ambient policies  
+- **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)  
 - See `docs/caller-pattern-plan.md` and `templates/examples/character-impatient.jsonl`  
 
 ### Audio cues (built-in + per-repo custom)
 
 | Source | Location | Scenario `asset` |
 |--------|----------|------------------|
-| Built-in | package `templates/cues/` | `builtin:noise.loud`, `@noise.ambient` |
+| Built-in noise | package `templates/cues/` | `builtin:noise.loud`, `@noise.ambient`, `noise.blip` |
+| Built-in **speech** | same | `builtin:voice.barge_short`, `voice.barge_sorry`, `voice.backchannel`, `voice.barge_vi` |
 | Target override | `.agent-sim/cues/*.wav` | `my_cafe.wav` (same name **overrides** built-in) |
 | Aliases / dirs | `config.yaml` → `cues:` | short name from `cues.aliases` |
 
 ```bash
 lk-sim cues --root /path/to/target
-lk-sim cues --root /path/to/target --resolve builtin:noise.loud
+lk-sim cues --root /path/to/target --resolve builtin:voice.barge_short
+# MCP: list_cues(project_root=…)
 ```
 
-WAV: **PCM16 mono @ 24 kHz**. Details: package `templates/cues/README.md`.
+WAV: **PCM16 mono @ 24 kHz**. Prefer `voice.*` for audible barge-in; noise for beds/bursts. Details: package `templates/cues/README.md`.
 
 ### Run
 
@@ -147,7 +151,6 @@ lk-sim execute-all --tag smoke --root /path/to/target
 | `scenario-init` | `init_scenario` |
 | `execute` | `execute_scenario` |
 | `execute-all` | `execute_scenarios` (suite matrix + CI gate) |
-| `execute-all` | `execute_scenarios` |
 | `execute-dict` | `execute_scenario_dict` |
 | `status` | `get_run_status` |
 | `log` | `get_run_log` |
@@ -169,18 +172,19 @@ Directory: `.agent-sim/reports/<run-id>/`
 |------|----------|
 | `events.jsonl` | Canonical event stream |
 | `timeline.md` | Human narrative table |
-| `summary.json` | Duration, turns, judge verdict |
+| `summary.json` | Duration, turns, judge, **`caller.behavior_summary`** (barges / silences / `recovery_ms`), `script_verify`, `assert_verify` |
 | `meta.json` | Scenario, room, config snapshot (no secrets) |
 | `conversation.wav` | Stereo PCM if `observe.record_audio: true` |
-| `cues.json` | Built on demand by `web` for transcript↔audio sync |
+| `cues.json` | Built on demand by `web` for transcript↔audio sync + markers |
 
 ```bash
-lk-sim report <run-id> --root /path/to/target
+lk-sim report <run-id> --root /path/to/target   # full summary (includes caller.behavior_summary)
 lk-sim log <run-id> --kind "transcript.*" --root /path/to/target
+lk-sim log <run-id> --kind "sim.script*" --root /path/to/target
 lk-sim runs --root /path/to/target
 lk-sim web --root /path/to/target              # newest run
 lk-sim web <run-id> --root /path/to/target     # specific run
-# Opens http://127.0.0.1:8765 — play audio; transcript highlights by time; click line to seek
+# Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for barge / silence / recovery
 ```
 
 No Node/Vite on the user machine. Player assets ship inside the package.

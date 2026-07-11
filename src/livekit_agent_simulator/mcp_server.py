@@ -73,7 +73,7 @@ def list_plugins(project_root: str) -> dict[str, Any]:
 
 @mcp.tool
 def list_cues(project_root: str) -> dict[str, Any]:
-    """List built-in package room_pcm cues + target `.agent-sim/cues/` overrides and config aliases."""
+    """List built-in room_pcm cues (noise.* + voice.* speech), target `.agent-sim/cues/` overrides, and config aliases."""
     return ops.list_cues(project_root)
 
 
@@ -155,7 +155,7 @@ def get_run_log(
 
 @mcp.tool
 async def get_run_report(project_root: str, run_id: str) -> dict[str, Any]:
-    """Full report: summary, judge verdict, suspicious turns, paths to timeline/events/audio."""
+    """Full report: summary (incl. caller.behavior_summary, script/assert verify), judge, suspicious turns, paths."""
     return await ops.get_run_report(project_root, run_id)
 
 

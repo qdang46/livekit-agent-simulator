@@ -132,7 +132,7 @@ def cues(
     asset: Optional[str] = typer.Option(
         None,
         "--resolve",
-        help="Resolve one asset id/path and print path (builtin:noise.loud, my.wav, …)",
+        help="Resolve one asset id/path and print path (builtin:voice.barge_short, builtin:noise.loud, my.wav, …)",
     ),
 ) -> None:
     """List built-in + target room_pcm cues. (MCP: list_cues)"""
@@ -324,7 +324,7 @@ def log(
 
 @app.command()
 def report(run_id: str, root: Optional[Path] = ROOT_OPTION) -> None:
-    """Summary + verdict + suspicious turns. (MCP: get_run_report)"""
+    """Summary + verdict + suspicious turns (includes caller.behavior_summary). (MCP: get_run_report)"""
     _print(_run(ops.get_run_report(_root(root), run_id)))
 
 

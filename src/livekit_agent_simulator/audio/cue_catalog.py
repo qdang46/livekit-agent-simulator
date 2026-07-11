@@ -298,6 +298,8 @@ def list_all_cues(
         "extra_dirs": extra,
         "usage": {
             "scenario_asset_examples": [
+                "builtin:voice.barge_short",
+                "builtin:voice.backchannel",
                 "builtin:noise.loud",
                 "@noise.ambient",
                 "loud_noise_burst.wav",
@@ -305,6 +307,12 @@ def list_all_cues(
                 "office  # if cues.aliases.office is set",
             ],
             "wav_format": "PCM16 mono @ 24000 Hz",
+            "vocal_aliases": [
+                "voice.barge_short",
+                "voice.barge_sorry",
+                "voice.backchannel",
+                "voice.barge_vi",
+            ],
         },
     }
 
