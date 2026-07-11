@@ -1,7 +1,12 @@
 import pytest
 
 from livekit_agent_simulator.script_parse import parse_script_steps, parse_script_verify
-from livekit_agent_simulator.script_runner import ScriptStep, ScriptVerifySpec, evaluate_script_log
+from livekit_agent_simulator.script import (
+    ScriptStep,
+    ScriptVerifySpec,
+    build_caller_behavior_summary,
+    evaluate_script_log,
+)
 
 
 def test_parse_script_steps():
@@ -102,8 +107,6 @@ def test_evaluate_silence_wait_and_agent_resume():
 
 
 def test_build_caller_behavior_summary():
-    from livekit_agent_simulator.script_runner import build_caller_behavior_summary
-
     events = [
         {
             "kind": "sim.script.cue",

@@ -106,11 +106,13 @@ On Windows, if `uv sync` fails (MCP exe locked):
 | Path | Role |
 |---|---|
 | `config.py` | Load `.agent-sim/config.yaml` |
-| `scenario.py` / `script_parse.py` / `script_runner.py` | JSONL + timed Script cues |
-| `run_orchestrator.py` | End-to-end run |
+| `scenario.py` / `script_parse.py` / `script/` | JSONL + timed Script cues (runtime / verify / summary) |
+| `script_runner.py` | Re-exports `script` (stable import path) |
+| `run_orchestrator.py` | End-to-end run (phased) |
 | `livekit/` | Room, dispatch, observer |
 | `gemini/` | Sim caller bridge + optional judge |
 | `logging/` | Event envelope, SQLite, reports |
+| `web/` | Report player API (`cues` facade + markers / transcript / speech_origin) |
 | `mcp_server.py` / `cli.py` | MCP tools + `lk-sim` |
 | `templates/` | Init scaffolds |
 | `tests/` | pytest |

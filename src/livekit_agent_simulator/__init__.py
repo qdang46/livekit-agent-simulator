@@ -17,7 +17,7 @@ from .plugins import (
 )
 from .scenario import Scenario, ScenarioError, parse_scenario
 from .scenario_from_dict import export_scenario_dict, scenario_from_dict
-from .script_runner import ScriptStep, ScriptVerifySpec, evaluate_script_log
+from .script import ScriptStep, ScriptVerifySpec, evaluate_script_log
 
 __all__ = [
     "__version__",

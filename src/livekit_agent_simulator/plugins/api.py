@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
     from ..scenario import Scenario
-    from ..script_runner import ScriptStep, ScriptVerifySpec
+    from ..script import ScriptStep, ScriptVerifySpec
 
 VerifyResult = dict[str, Any]
 

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .asserts import AssertSpec, parse_assert_spec
-from .script_runner import ScriptStep, ScriptVerifySpec
+from .script import ScriptStep, ScriptVerifySpec
 
 API_VERSION = "agent-sim/v1"
 KNOWN_KINDS = {

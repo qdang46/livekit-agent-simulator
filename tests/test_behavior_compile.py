@@ -4,7 +4,7 @@ from livekit_agent_simulator.behavior_compile import (
     compile_from_speech_conditions,
     merge_script_steps,
 )
-from livekit_agent_simulator.script_runner import ScriptStep
+from livekit_agent_simulator.script import ScriptStep
 from livekit_agent_simulator.scenario import parse_scenario
 
 

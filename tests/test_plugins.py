@@ -5,7 +5,7 @@ from livekit_agent_simulator.plugins.loader import ensure_plugins_loaded
 from livekit_agent_simulator.scenario import parse_scenario
 from livekit_agent_simulator.scenario_from_dict import export_scenario_dict, scenario_from_dict
 from livekit_agent_simulator.script_parse import parse_script_verify
-from livekit_agent_simulator.script_runner import ScriptStep, evaluate_script_log
+from livekit_agent_simulator.script import ScriptStep, evaluate_script_log
 
 
 @pytest.fixture(autouse=True)

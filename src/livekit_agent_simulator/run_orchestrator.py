@@ -30,7 +30,7 @@ from .logging.sqlite_store import RunStore
 from .preflight import run_preflight
 from .plugins.loader import ensure_plugins_loaded
 from .scenario import Scenario, SimulatorSpec, find_scenario
-from .script_runner import ScriptRunner, evaluate_script_log
+from .script import ScriptRunner, build_caller_behavior_summary, evaluate_script_log
 
 
 def new_run_id(scenario_id: str) -> str:
@@ -52,7 +52,18 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
 
 
 async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str, Any]:
-    """Run a parsed Scenario (file or in-memory). Returns {run_id, status, report_dir, summary}."""
+    """Run a parsed Scenario (file or in-memory). Returns {run_id, status, report_dir, summary}.
+
+    Phases (in order):
+      1. prepare — plugins, report dir, event writer
+      2. dispatch — room + agent join
+      3. connect  — sim caller + mic + optional script runner
+      4. converse — turns until end condition
+      5. verify   — script/assert hard checks + behavior_summary
+      6. judge    — optional soft LLM verdict
+      7. finalize — summary.json / sqlite / cleanup
+    """
+    # ── Phase 1: prepare ────────────────────────────────────────────────
     plugin_load = ensure_plugins_loaded(cfg.project_root, scenario.plugin_modules)
     run = scenario.run_spec
     dispatch_metadata = scenario.dispatch_metadata(cfg.livekit.dispatch_metadata)
@@ -95,6 +106,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             include_dialogue=False,
         )
         try:
+            # ── Phase 2: dispatch ────────────────────────────────────────
             dispatch = await adapter.create_room_and_dispatch(run_id, dispatch_metadata)
             meta["room_name"] = dispatch.room_name
             writer.emit(
@@ -252,6 +264,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             if meta.get("room_name"):
                 await adapter.delete_room(meta["room_name"])
 
+    # ── Phase: post-run hard verify + report digests ─────────────────────
     summary_extra: dict[str, Any] = {}
 
     has_script_verify = scenario.script_verify is not None and (
@@ -282,8 +295,6 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
 
     # Caller behavior digest for reports / web (barges, silences, recovery latency).
     if status in ("done", "failed"):
-        from .script_runner import build_caller_behavior_summary
-
         behavior_summary = build_caller_behavior_summary(writer.events)
         # Enrich recovery latency from assert recovery outcomes when present.
         assert_v = summary_extra.get("assert_verify")
@@ -299,6 +310,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                     break
         summary_extra["caller"] = {"behavior_summary": behavior_summary}
 
+    # ── Phase: soft LLM judge (does not flip hard gate by itself) ────────
     if status in ("done", "failed") and cfg.judge is not None and scenario.pass_criteria:
         try:
             tool_events = [e for e in writer.events if e["kind"].startswith("tool.")]

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .script_runner import ScriptStep, ScriptVerifySpec
+from .script import ScriptStep, ScriptVerifySpec
 
 
 def _is_voice_asset(asset: str | None) -> bool:

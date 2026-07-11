@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .script_runner import SUPPORTED_ACTIONS, SUPPORTED_TRIGGERS, ScriptStep, ScriptVerifySpec
+from .script import SUPPORTED_ACTIONS, SUPPORTED_TRIGGERS, ScriptStep, ScriptVerifySpec
 
 
 def parse_script_verify(raw: Any) -> ScriptVerifySpec | None:
