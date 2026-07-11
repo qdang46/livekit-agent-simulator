@@ -10,7 +10,7 @@
 [CmdletBinding()]
 param(
     [Alias("Version")]
-    # Empty → latest GitHub Release (CI wheel). Use -GitRef main for tip of main.
+    # Empty -> latest GitHub Release (CI wheel). Use -GitRef main for tip of main.
     [string]$GitRef = $(if ($env:LK_SIM_REF) { $env:LK_SIM_REF } else { "" }),
     [switch]$NoMcp,
     [switch]$Verify,
@@ -126,7 +126,7 @@ function Install-UvBinaryDirect {
         # Companion binaries if present (optional)
         Get-ChildItem -Path $work -Recurse -Filter "uvx.exe" -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName (Join-Path $destDir $_.Name) -Force }
-        Write-Log "Installed uv.exe → $target"
+        Write-Log "Installed uv.exe -> $target"
         return $target
     } finally {
         try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
@@ -158,7 +158,7 @@ function Ensure-Uv {
         return $uv
     }
 
-    Write-Log "uv not found — bootstrapping (no manual install needed)"
+    Write-Log "uv not found - bootstrapping (no manual install needed)"
 
     # 1) Official installer under Bypass (handles PATH + shell integration).
     try {
@@ -176,7 +176,7 @@ function Ensure-Uv {
         return $uv
     }
 
-    # 2) Direct binary download — ignores execution policy entirely.
+    # 2) Direct binary download - ignores execution policy entirely.
     Write-Log "Falling back to direct uv.exe download from GitHub Releases"
     try {
         $uv = Install-UvBinaryDirect
@@ -282,10 +282,10 @@ function Resolve-LkSim {
 function Configure-AllMcpProviders {
     $binary = Resolve-LkSim
     if (-not $binary) {
-        Write-Log "lk-sim not found on PATH — skip MCP provider config" "WARN"
+        Write-Log "lk-sim not found on PATH - skip MCP provider config" "WARN"
         return
     }
-    Write-Log "Configuring MCP providers → $binary mcp"
+    Write-Log "Configuring MCP providers -> $binary mcp"
     $entry = @{
         $McpServerName = @{
             command = $binary
@@ -372,10 +372,10 @@ function Resolve-InstallRef {
     }
     $latest = Get-LatestReleaseTag
     if ($latest) {
-        Write-Log "Default ref → latest release $latest (CI wheel)"
+        Write-Log "Default ref -> latest release $latest (CI wheel)"
         return $latest
     }
-    Write-Log "No GitHub releases found — using main (source install)" "WARN"
+    Write-Log "No GitHub releases found - using main (source install)" "WARN"
     return "main"
 }
 
@@ -399,13 +399,13 @@ function Install-FromReleaseWheel {
     try {
         $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$tag" -UseBasicParsing
     } catch {
-        Write-Log "No GitHub release for $tag — will use source" "WARN"
+        Write-Log "No GitHub release for $tag - will use source" "WARN"
         return $false
     }
 
     $asset = @($rel.assets) | Where-Object { $_.name -like "*.whl" } | Select-Object -First 1
     if (-not $asset) {
-        Write-Log "Release $tag has no .whl asset — will use source" "WARN"
+        Write-Log "Release $tag has no .whl asset - will use source" "WARN"
         return $false
     }
 
@@ -425,7 +425,7 @@ function Install-FromReleaseWheel {
         return $false
     }
 
-    Write-Log "uv tool install --force $whl  (prebuilt by CI — no local package build)"
+    Write-Log "uv tool install --force $whl  (prebuilt by CI - no local package build)"
     & $UvPath tool install --force $whl
     $code = $LASTEXITCODE
     try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
@@ -516,7 +516,7 @@ function Install-Package {
             Write-Log "git-based install failed; falling back to source archive: $_" "WARN"
         }
     } else {
-        Write-Log "git not on PATH — installing from GitHub source archive (no Git required)"
+        Write-Log "git not on PATH - installing from GitHub source archive (no Git required)"
     }
 
     # 3) source zip
@@ -530,7 +530,7 @@ if ($Uninstall) {
 
 $ResolvedRef = Resolve-InstallRef
 Write-Log "Installing $PkgName (CLI $BinaryName | MCP: $BinaryName mcp)"
-Write-Log "Ref: $ResolvedRef — CI wheel preferred; bootstraps uv if needed"
+Write-Log "Ref: $ResolvedRef - CI wheel preferred; bootstraps uv if needed"
 Install-Package -Ref $ResolvedRef
 
 # uv tools land in ~/.local/bin on Windows
@@ -552,7 +552,7 @@ if ($Verify) {
 }
 
 Write-Host ""
-Write-Host "✓ $PkgName installed" -ForegroundColor Green
+Write-Host "OK $PkgName installed" -ForegroundColor Green
 if ($lkResolved) {
     Write-Host "  CLI: $lkResolved"
     Write-Host "  MCP: $lkResolved mcp"
