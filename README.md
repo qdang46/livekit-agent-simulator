@@ -26,15 +26,16 @@ paths — use `execute_*` to validate then run.
 
 ## Install (user machine)
 
-**One command — no manual uv/pipx/git setup.** The installer bootstraps
-[uv](https://docs.astral.sh/uv/) if needed, then installs `lk-sim` from this repo
-(git or GitHub source archive).
+**One command.** CI builds a **wheel** on each release (report player included).
+The installer bootstraps [uv](https://docs.astral.sh/uv/) if needed, then installs
+that prebuilt wheel from GitHub Releases — **no package build on your machine**.
+(No PyPI; fallback to git/source only for `--ref main` or when no wheel exists.)
 
 ```bash
-# macOS / Linux
+# macOS / Linux  (default = latest release wheel)
 curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 
-# Windows PowerShell
+# Windows PowerShell  (default = latest release wheel)
 irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
 ```
 
@@ -45,30 +46,30 @@ lk-sim guide
 lk-sim web --root /path/to/target   # no Node — report player is prebuilt into the package
 ```
 
-Installer options (Unix) — auto-bootstraps uv; no PyPI / wheel:
+Installer options (Unix) — auto-bootstraps uv; prefers CI wheel:
 
 ```bash
-# pin to a tag
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref v0.1.0 --verify
+# pin to a tag (downloads CI .whl from that release)
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref v0.1.1 --verify
 
-# main + skip MCP auto-config
+# tip of main (source / no wheel) + skip MCP auto-config
 curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref main --no-mcp
 
 # uninstall tool + MCP registrations
 curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --uninstall
 ```
 
-Windows PowerShell (full examples) — same zero-prereq path (bootstraps uv):
+Windows PowerShell (full examples) — same path (CI wheel + bootstrap uv):
 
 ```powershell
-# default = main
+# default = latest release wheel
 irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
 
 # pin tag + verify
 irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
-.\install.ps1 -GitRef v0.1.0 -Verify
+.\install.ps1 -GitRef v0.1.1 -Verify
 
-# skip MCP / uninstall
+# tip of main / uninstall
 .\install.ps1 -GitRef main -NoMcp
 .\install.ps1 -Uninstall
 ```
@@ -91,10 +92,11 @@ pnpm --dir web dev      # HMR; proxy /api + /runs → lk-sim web on :8765
 ### Release (maintainers)
 
 ```bash
-# after main is green (player assets committed or built on the tag job):
-git tag v0.1.0 && git push origin main --tags
-# → GitHub Actions: pnpm build → pytest → GitHub Release (install.sh + install.ps1 only)
-# No PyPI / no wheel publish
+# after main is green:
+git tag v0.1.1 && git push origin main --tags
+# → GitHub Actions: pnpm build → pytest → uv build --wheel → GitHub Release
+#    assets: install.sh + install.ps1 + livekit_agent_simulator-*.whl
+# No PyPI (wheel is GitHub Releases only)
 ```
 
 ## Quick start
@@ -176,7 +178,7 @@ Dev checkout (package not installed globally):
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | [CI](.github/workflows/ci.yml) | PR / push → `main` | pnpm report-player build, `pytest` (3.10 + 3.12), `lk-sim --help` |
-| [Release](.github/workflows/release.yml) | tag `v*` | pnpm build → pytest → GitHub Release (`install.sh` + `install.ps1` only; **no** PyPI / wheel) |
+| [Release](.github/workflows/release.yml) | tag `v*` | pnpm build → pytest → **uv build --wheel** → GitHub Release (`install.sh` + `install.ps1` + `.whl`; **no** PyPI) |
 
 Local check:
 

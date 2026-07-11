@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Install livekit-agent-simulator from GitHub. Zero prereqs:
-# bootstraps uv if missing, installs from git or source archive. No PyPI / wheel.
+# Install livekit-agent-simulator from GitHub Releases. Zero prereqs:
+# bootstraps uv if missing; prefers CI-built wheel; else git / source archive.
+# No PyPI.
 #
 #   curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 #
 # Options (bash -s -- …):
-#   --version / --ref v0.1.0|main   git tag or branch (default: main)
+#   --version / --ref v0.1.1|main   release tag or branch (default: latest release)
+#   --from-git                      skip wheel; install from git/source only
 #   --no-mcp                        skip MCP auto-config
 #   --verify                        run lk-sim --help after install
 #   --easy-mode                     ensure ~/.local/bin on PATH via shell rc
@@ -23,12 +25,14 @@ PKG_NAME="livekit-agent-simulator"
 OWNER="quangdang46"
 REPO="livekit-agent-simulator"
 DEST="${DEST:-$HOME/.local/bin}"
-GIT_REF="${LK_SIM_REF:-main}"
+# Empty default → resolve to latest GitHub Release (CI wheel). Use --ref main for tip.
+GIT_REF="${LK_SIM_REF:-}"
 QUIET=0
 EASY=0
 VERIFY=0
 UNINSTALL=0
 NO_MCP=0
+FROM_GIT=0
 LOCK_DIR="${TMPDIR:-/tmp}/${BINARY_NAME}-install.lock.d"
 
 log_info()    { [ "$QUIET" -eq 1 ] && return; echo "[${BINARY_NAME}] $*" >&2; }
@@ -49,19 +53,21 @@ acquire_lock() {
 
 usage() {
   cat <<EOF
-Install ${PKG_NAME} from GitHub (auto-bootstraps uv). No PyPI.
+Install ${PKG_NAME} from GitHub Releases (CI wheel). No PyPI.
 
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash
-  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref v0.1.0 --verify
+  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref v0.1.1 --verify
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref main --no-mcp
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --uninstall
 
 CLI: ${BINARY_NAME}   |   MCP: ${BINARY_NAME} mcp
 
-Bootstraps uv if missing. Uses git when available, else GitHub zip archive.
+Default ref = latest release (downloads CI-built .whl). Bootstraps uv if missing.
+Falls back to git / source zip when no wheel (e.g. --ref main).
 
 Options:
-  --version / --ref REF   git tag or branch (default: main)
+  --version / --ref REF   release tag or branch (default: latest release)
+  --from-git              skip wheel; install from git/source only
   --no-mcp                skip MCP provider auto-config
   --easy-mode             append DEST to PATH in shell rc
   --verify                run ${BINARY_NAME} --help
@@ -76,10 +82,11 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --version|--ref)   GIT_REF="$2"; shift 2 ;;
     --version=*|--ref=*) GIT_REF="${1#*=}"; shift ;;
-    --from-git)        # accepted for back-compat; always git
+    --from-git)
+      FROM_GIT=1
       if [ $# -ge 2 ] && [[ "${2:-}" != -* ]]; then GIT_REF="$2"; shift 2; else shift; fi
       ;;
-    --from-git=*)      GIT_REF="${1#*=}"; shift ;;
+    --from-git=*)      FROM_GIT=1; GIT_REF="${1#*=}"; shift ;;
     --no-mcp)          NO_MCP=1; shift ;;
     --easy-mode)       EASY=1; shift ;;
     --verify)          VERIFY=1; shift ;;
@@ -369,14 +376,79 @@ ensure_uv() {
   log_info "Bootstrapped uv: $(command -v uv)"
 }
 
+latest_release_tag() {
+  curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+resolve_install_ref() {
+  if [ -n "${GIT_REF}" ]; then
+    echo "${GIT_REF}"
+    return 0
+  fi
+  local latest
+  latest="$(latest_release_tag || true)"
+  if [ -n "$latest" ]; then
+    log_info "Default ref → latest release ${latest} (CI wheel)" >&2
+    echo "$latest"
+    return 0
+  fi
+  log_warn "No GitHub releases found — using main (source install)" >&2
+  echo "main"
+}
+
+# Tag form for API: v0.1.1. Returns empty if ref is a branch.
+release_tag_from_ref() {
+  local ref="$1"
+  case "$ref" in
+    v[0-9]*.[0-9]*) echo "$ref" ;;
+    [0-9]*.[0-9]*)  echo "v${ref}" ;;
+    *)              echo "" ;;
+  esac
+}
+
+# Prefer CI-built wheel from GitHub Release assets (no local package build).
+install_from_release_wheel() {
+  local ref="$1" tag api_json work whl url name
+  [ "$FROM_GIT" -eq 0 ] || return 1
+  tag="$(release_tag_from_ref "$ref")"
+  [ -n "$tag" ] || return 1
+
+  log_info "Looking for CI wheel on release ${tag} ..."
+  api_json="$(curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${tag}" 2>/dev/null || true)"
+  [ -n "$api_json" ] || { log_warn "No GitHub release for ${tag}"; return 1; }
+
+  # Pick first asset whose name ends with .whl
+  name="$(printf '%s' "$api_json" | sed -n 's/.*"name":[[:space:]]*"\([^"]*\.whl\)".*/\1/p' | head -1)"
+  url="$(printf '%s' "$api_json" | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\.whl\)".*/\1/p' | head -1)"
+  [ -n "$name" ] && [ -n "$url" ] || { log_warn "Release ${tag} has no .whl asset"; return 1; }
+
+  work="$(mktemp -d "${TMPDIR:-/tmp}/lk-sim-whl.XXXXXX")"
+  whl="${work}/${name}"
+  log_info "Downloading CI wheel: ${url}"
+  if ! curl -fsSL "$url" -o "$whl" || [ ! -s "$whl" ]; then
+    log_warn "Wheel download failed"
+    rm -rf "$work"
+    return 1
+  fi
+  log_info "uv tool install --force ${whl}  (prebuilt by CI — no local package build)"
+  if ! uv tool install --force "$whl"; then
+    log_warn "uv tool install (wheel) failed"
+    rm -rf "$work"
+    return 1
+  fi
+  rm -rf "$work"
+  return 0
+}
+
 # Install from GitHub source zip (no git required). Tries tag then branch.
 install_from_archive() {
-  local work zip url src
+  local ref="$1" work zip url src
   work="$(mktemp -d "${TMPDIR:-/tmp}/lk-sim-install.XXXXXX")"
   zip="${work}/src.zip"
   for url in \
-    "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${GIT_REF}.zip" \
-    "https://github.com/${OWNER}/${REPO}/archive/refs/heads/${GIT_REF}.zip"
+    "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${ref}.zip" \
+    "https://github.com/${OWNER}/${REPO}/archive/refs/heads/${ref}.zip"
   do
     log_info "Downloading source: $url"
     if curl -fsSL "$url" -o "$zip" && [ -s "$zip" ]; then
@@ -385,7 +457,7 @@ install_from_archive() {
     rm -f "$zip"
     log_warn "Not available: $url"
   done
-  [ -s "$zip" ] || die "Could not download source for ref '${GIT_REF}' (tried tags + branches)"
+  [ -s "$zip" ] || die "Could not download source for ref '${ref}' (tried tags + branches)"
   log_info "Extracting source archive..."
   unzip -q "$zip" -d "$work" || die "unzip failed (install unzip or use git)"
   src="$(find "$work" -mindepth 1 -maxdepth 1 -type d \( -name "${REPO}-*" -o -name "${REPO}" \) | head -1)"
@@ -396,8 +468,16 @@ install_from_archive() {
 }
 
 install_package() {
+  local ref="$1"
   ensure_uv
-  local spec="git+https://github.com/${OWNER}/${REPO}.git@${GIT_REF}"
+
+  # 1) CI wheel from GitHub Release
+  if install_from_release_wheel "$ref"; then
+    return 0
+  fi
+
+  # 2) git
+  local spec="git+https://github.com/${OWNER}/${REPO}.git@${ref}"
   if command -v git >/dev/null 2>&1; then
     log_info "Source: $spec"
     if uv tool install --force "$spec"; then
@@ -407,7 +487,9 @@ install_package() {
   else
     log_info "git not on PATH — installing from GitHub source archive (no Git required)"
   fi
-  install_from_archive
+
+  # 3) source zip
+  install_from_archive "$ref"
 }
 
 [ "$UNINSTALL" -eq 1 ] && do_uninstall
@@ -416,12 +498,15 @@ main() {
   acquire_lock
   mkdir -p "$DEST"
 
-  log_info "Installing ${PKG_NAME} (ref ${GIT_REF}; no PyPI)"
+  local ref
+  ref="$(resolve_install_ref)"
+
+  log_info "Installing ${PKG_NAME} (ref ${ref}; CI wheel preferred; no PyPI)"
   log_info "CLI: ${BINARY_NAME}  |  MCP: ${BINARY_NAME} mcp"
   log_info "Dest PATH hint: $DEST"
   log_info "Will bootstrap uv if needed (no manual pipx/uv install)"
 
-  install_package
+  install_package "$ref"
 
   export PATH="${DEST}:${HOME}/.local/bin:${PATH}"
   maybe_add_path
@@ -457,7 +542,7 @@ main() {
   echo "    ${BINARY_NAME} web --root /path/to/target"
   echo "    ${BINARY_NAME} mcp    # MCP server (stdio)"
   echo ""
-  echo "  Report player is prebuilt in the git tree (no Node/pnpm required)."
+  echo "  Report player ships inside the CI wheel (no Node/pnpm required)."
   echo ""
 }
 

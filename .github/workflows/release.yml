@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    name: Test + GitHub Release
+    name: Build + Test + GitHub Release
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +29,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Build report player (must be present for git installs)
+      - name: Build report player (bundled into wheel)
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
@@ -55,6 +55,25 @@ jobs:
       - name: CLI smoke
         run: uv run lk-sim --help
 
+      - name: Build wheel (CI artifact for installers)
+        run: |
+          rm -rf dist
+          uv build --wheel
+          ls -la dist/
+          uv run python - <<'PY'
+          import sys, zipfile
+          from pathlib import Path
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          whl = wheels[0]
+          with zipfile.ZipFile(whl) as z:
+              names = z.namelist()
+          player = [n for n in names if "report-player/index.html" in n]
+          assert player, "wheel missing report-player/index.html"
+          print(f"wheel={whl.name} entries={len(names)} player={player[0]}")
+          PY
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -62,35 +81,44 @@ jobs:
           files: |
             install.sh
             install.ps1
+            dist/*.whl
           body: |
             ## Install
 
-            Distribution is **git + uv/pipx only** (no PyPI / wheel publish).
+            CI builds a **prebuilt wheel** (report player included). Installers download that
+            artifact from this release — you do **not** build from source on the user machine.
+            Still **no PyPI**; distribution is GitHub Releases only.
 
             ### macOS / Linux
 
             ```bash
-            # pin to this release tag
+            # pin to this release (downloads CI wheel)
             curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref ${{ github.ref_name }} --verify
 
-            # or latest main
+            # default = latest release wheel when available
             curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
             ```
 
             ### Windows PowerShell
 
             ```powershell
+            # default = latest release wheel
+            irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
+
+            # pin tag
             irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
             .\install.ps1 -GitRef ${{ github.ref_name }} -Verify
             ```
 
-            ### Direct (no installer)
+            ### Direct (prebuilt wheel)
+
+            Download the `.whl` from **Assets** below (pure `py3-none-any`), then:
 
             ```bash
-            uv tool install --force "git+https://github.com/quangdang46/livekit-agent-simulator.git@${{ github.ref_name }}"
+            uv tool install --force ./livekit_agent_simulator-*.whl
             ```
 
-            Report player is prebuilt under `templates/report-player/` in the tagged tree — no Node on the user machine.
+            Report player is inside the wheel — no Node on the user machine.
 
       - name: Release summary
         if: always()
@@ -103,16 +131,16 @@ jobs:
             echo "### Pipeline"
             echo "- pnpm web build → templates/report-player/"
             echo "- pytest + lk-sim --help"
-            echo "- GitHub Release with install.sh + install.ps1"
-            echo "- **No** wheel / sdist / PyPI publish"
+            echo "- **uv build --wheel** (assert report-player inside)"
+            echo "- GitHub Release: install.sh + install.ps1 + dist/*.whl"
+            echo "- **No** PyPI publish"
             echo ""
-            echo "### Install (full URLs)"
+            echo "### Install"
             echo "\`\`\`bash"
             echo "curl -fsSL \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?\$(date +%s)\" | bash -s -- --ref ${GITHUB_REF_NAME} --verify"
             echo "\`\`\`"
             echo ""
             echo "\`\`\`powershell"
-            echo "irm \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1\" -OutFile install.ps1"
-            echo ".\\install.ps1 -GitRef ${GITHUB_REF_NAME} -Verify"
+            echo "irm \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1\" | iex"
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"

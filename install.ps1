@@ -1,5 +1,5 @@
-# Install livekit-agent-simulator from GitHub. Zero prereqs:
-# bootstraps uv if missing, downloads source, installs CLI + MCP.
+# Install livekit-agent-simulator from GitHub Releases. Zero prereqs:
+# bootstraps uv if missing, prefers CI-built wheel, else git/source archive.
 #
 #   irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
 #
@@ -10,12 +10,13 @@
 [CmdletBinding()]
 param(
     [Alias("Version")]
-    [string]$GitRef = $(if ($env:LK_SIM_REF) { $env:LK_SIM_REF } else { "main" }),
+    # Empty → latest GitHub Release (CI wheel). Use -GitRef main for tip of main.
+    [string]$GitRef = $(if ($env:LK_SIM_REF) { $env:LK_SIM_REF } else { "" }),
     [switch]$NoMcp,
     [switch]$Verify,
     [switch]$Uninstall,
     [switch]$Quiet,
-    # Accepted for back-compat with earlier installers; install is always from git/source.
+    # Force git/source path even when a release wheel exists.
     [switch]$FromGit
 )
 
@@ -284,15 +285,95 @@ function Uninstall-All {
     Write-Log "Uninstalled $PkgName"
 }
 
+function Get-LatestReleaseTag {
+    try {
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
+        if ($rel.tag_name) { return [string]$rel.tag_name }
+    } catch {
+        Write-Log "Could not resolve latest release: $_" "WARN"
+    }
+    return $null
+}
+
+function Resolve-InstallRef {
+    if ($GitRef -and $GitRef.Trim()) {
+        return $GitRef.Trim()
+    }
+    $latest = Get-LatestReleaseTag
+    if ($latest) {
+        Write-Log "Default ref → latest release $latest (CI wheel)"
+        return $latest
+    }
+    Write-Log "No GitHub releases found — using main (source install)" "WARN"
+    return "main"
+}
+
+function Get-ReleaseTagFromRef {
+    param([string]$Ref)
+    if (-not $Ref) { return $null }
+    if ($Ref -match '^[0-9]+\.[0-9]+') { return "v$Ref" }
+    if ($Ref -match '^v[0-9]+\.[0-9]+') { return $Ref }
+    return $null
+}
+
+function Install-FromReleaseWheel {
+    param([string]$UvPath, [string]$Ref)
+
+    if ($FromGit) { return $false }
+
+    $tag = Get-ReleaseTagFromRef -Ref $Ref
+    if (-not $tag) { return $false }
+
+    Write-Log "Looking for CI wheel on release $tag ..."
+    try {
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$tag" -UseBasicParsing
+    } catch {
+        Write-Log "No GitHub release for $tag — will use source" "WARN"
+        return $false
+    }
+
+    $asset = @($rel.assets) | Where-Object { $_.name -like "*.whl" } | Select-Object -First 1
+    if (-not $asset) {
+        Write-Log "Release $tag has no .whl asset — will use source" "WARN"
+        return $false
+    }
+
+    $work = Join-Path $env:TEMP ("lk-sim-whl-" + [guid]::NewGuid().ToString("n"))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $whl = Join-Path $work $asset.name
+    Write-Log "Downloading CI wheel: $($asset.browser_download_url)"
+    try {
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $whl -UseBasicParsing
+    } catch {
+        Write-Log "Wheel download failed: $_" "WARN"
+        try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
+        return $false
+    }
+    if (-not (Test-Path $whl) -or (Get-Item $whl).Length -le 0) {
+        Write-Log "Wheel file empty/missing" "WARN"
+        return $false
+    }
+
+    Write-Log "uv tool install --force $whl  (prebuilt by CI — no local package build)"
+    & $UvPath tool install --force $whl
+    $code = $LASTEXITCODE
+    try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
+    if ($code -ne 0) {
+        Write-Log "uv tool install (wheel) failed exit $code" "WARN"
+        return $false
+    }
+    return $true
+}
+
 function Install-FromArchive {
-    param([string]$UvPath)
+    param([string]$UvPath, [string]$Ref)
 
     $work = Join-Path $env:TEMP ("lk-sim-install-" + [guid]::NewGuid().ToString("n"))
     New-Item -ItemType Directory -Path $work -Force | Out-Null
     $zip = Join-Path $work "src.zip"
     $urls = @(
-        "https://github.com/$Owner/$Repo/archive/refs/tags/$GitRef.zip",
-        "https://github.com/$Owner/$Repo/archive/refs/heads/$GitRef.zip"
+        "https://github.com/$Owner/$Repo/archive/refs/tags/$Ref.zip",
+        "https://github.com/$Owner/$Repo/archive/refs/heads/$Ref.zip"
     )
 
     $downloaded = $false
@@ -309,7 +390,7 @@ function Install-FromArchive {
         }
     }
     if (-not $downloaded) {
-        throw "Could not download source for ref '$GitRef' (tried tags + branches)."
+        throw "Could not download source for ref '$Ref' (tried tags + branches)."
     }
 
     Write-Log "Extracting source archive..."
@@ -334,8 +415,8 @@ function Install-FromArchive {
 }
 
 function Install-FromGitSpec {
-    param([string]$UvPath)
-    $spec = "git+https://github.com/$Owner/$Repo.git@$GitRef"
+    param([string]$UvPath, [string]$Ref)
+    $spec = "git+https://github.com/$Owner/$Repo.git@$Ref"
     Write-Log "Source: $spec"
     & $UvPath tool install --force $spec
     if ($LASTEXITCODE -ne 0) {
@@ -344,13 +425,21 @@ function Install-FromGitSpec {
 }
 
 function Install-Package {
+    param([string]$Ref)
+
     $uv = Ensure-Uv
     Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
 
+    # 1) Prefer CI-built wheel from GitHub Release (no local build)
+    if (Install-FromReleaseWheel -UvPath $uv -Ref $Ref) {
+        return
+    }
+
+    # 2) git if available
     $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
     if ($hasGit) {
         try {
-            Install-FromGitSpec -UvPath $uv
+            Install-FromGitSpec -UvPath $uv -Ref $Ref
             return
         } catch {
             Write-Log "git-based install failed; falling back to source archive: $_" "WARN"
@@ -359,7 +448,8 @@ function Install-Package {
         Write-Log "git not on PATH — installing from GitHub source archive (no Git required)"
     }
 
-    Install-FromArchive -UvPath $uv
+    # 3) source zip
+    Install-FromArchive -UvPath $uv -Ref $Ref
 }
 
 if ($Uninstall) {
@@ -367,9 +457,10 @@ if ($Uninstall) {
     return
 }
 
+$ResolvedRef = Resolve-InstallRef
 Write-Log "Installing $PkgName (CLI $BinaryName | MCP: $BinaryName mcp)"
-Write-Log "Ref: $GitRef — will bootstrap uv if needed (no manual pipx/uv install)"
-Install-Package
+Write-Log "Ref: $ResolvedRef — CI wheel preferred; bootstraps uv if needed"
+Install-Package -Ref $ResolvedRef
 
 # uv tools land in ~/.local/bin on Windows
 Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
@@ -404,6 +495,6 @@ Write-Host "    $BinaryName init --root C:\path\to\target"
 Write-Host "    $BinaryName web --root C:\path\to\target"
 Write-Host "    $BinaryName mcp"
 Write-Host ""
-Write-Host "  Report player is prebuilt in the git tree (no Node/pnpm required)."
+Write-Host "  Report player ships inside the CI wheel (no Node/pnpm required)."
 Write-Host "  If '$BinaryName' is not found, open a new PowerShell (PATH refresh)."
 Write-Host ""
