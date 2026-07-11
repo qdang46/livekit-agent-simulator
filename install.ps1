@@ -1,21 +1,21 @@
-# Production installer for livekit-agent-simulator (lk-sim + MCP) on Windows.
+# Install livekit-agent-simulator from GitHub (git + uv/pipx). No PyPI / wheel.
 #
 #   irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
 #
-# Or with args:
-#   irm .../install.ps1 | iex
-#   # Or download then: .\install.ps1 -Version v0.1.0 -Verify -NoMcp
+#   .\install.ps1 -GitRef v0.1.0 -Verify
+#   .\install.ps1 -Uninstall
 #
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$Version = $env:LK_SIM_VERSION,
+    [Alias("Version")]
     [string]$GitRef = $(if ($env:LK_SIM_REF) { $env:LK_SIM_REF } else { "main" }),
-    [switch]$FromGit,
     [switch]$NoMcp,
     [switch]$Verify,
     [switch]$Uninstall,
-    [switch]$Quiet
+    [switch]$Quiet,
+    # Accepted for back-compat with earlier installers; install is always from git.
+    [switch]$FromGit
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,11 +33,6 @@ function Write-Log {
     if ($Level -eq "WARN") { Write-Host "$prefix WARN: $Message" -ForegroundColor Yellow }
     elseif ($Level -eq "ERROR") { Write-Host "$prefix ERROR: $Message" -ForegroundColor Red }
     else { Write-Host "$prefix $Message" }
-}
-
-function Get-PypiVersion([string]$v) {
-    if ([string]::IsNullOrWhiteSpace($v)) { return $null }
-    return $v.TrimStart("v")
 }
 
 function Merge-JsonIntoFile {
@@ -70,13 +65,10 @@ function Merge-JsonIntoFile {
     }
 
     $bucket = $data[$Key]
-    if ($null -eq $bucket) { $bucket = [ordered]@{} }
-
-    # Convert nested PSCustomObject bucket to hashtable-ish
     $bucketMap = [ordered]@{}
     if ($bucket -is [System.Collections.IDictionary]) {
         foreach ($k in $bucket.Keys) { $bucketMap[$k] = $bucket[$k] }
-    } elseif ($bucket.PSObject) {
+    } elseif ($null -ne $bucket -and $bucket.PSObject) {
         foreach ($p in $bucket.PSObject.Properties) { $bucketMap[$p.Name] = $p.Value }
     }
 
@@ -168,7 +160,6 @@ function Configure-AllMcpProviders {
         Merge-JsonIntoFile -FilePath $opencode -Key "mcpServers" -Value $ocEntry
     }
 
-    # Codex TOML
     $codexDir = Join-Path $env:USERPROFILE ".codex"
     $codex = Join-Path $codexDir "config.toml"
     if (Test-Path $codexDir) {
@@ -200,7 +191,7 @@ function Uninstall-All {
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".gemini\settings.json") -ServerName $McpServerName
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".aws\amazonq\mcp.json") -ServerName $McpServerName
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".aws\amazonq\default.json") -ServerName $McpServerName
-    Write-Log "Uninstalled $PkgName" "INFO"
+    Write-Log "Uninstalled $PkgName"
 }
 
 function Install-Package {
@@ -210,45 +201,20 @@ function Install-Package {
         throw "Need uv or pipx. Install uv: https://docs.astral.sh/uv/getting-started/installation/"
     }
 
-    $spec = $PkgName
-    if ($FromGit) {
-        $spec = "git+https://github.com/$Owner/$Repo.git@$GitRef"
-        Write-Log "Source: git @$GitRef"
-    } elseif ($Version) {
-        $pv = Get-PypiVersion $Version
-        $spec = "$PkgName==$pv"
-        Write-Log "Source: PyPI $spec"
-    } else {
-        Write-Log "Source: PyPI latest $PkgName"
-    }
+    $spec = "git+https://github.com/$Owner/$Repo.git@$GitRef"
+    Write-Log "Source: $spec (git only — no PyPI)"
 
-    try {
-        if ($hasUv) {
-            Write-Log "uv tool install --force $spec"
-            & uv tool install --force $spec
-            if ($LASTEXITCODE -ne 0) { throw "uv tool install failed" }
-        } else {
-            Write-Log "pipx install --force $spec"
-            & pipx install --force $spec
-            if ($LASTEXITCODE -ne 0) { throw "pipx install failed" }
-        }
-    } catch {
-        Write-Log "Primary install failed — falling back to git@$GitRef" "WARN"
-        $gitspec = "git+https://github.com/$Owner/$Repo.git@$GitRef"
-        if ($Version -and $Version.StartsWith("v")) {
-            $gitspec = "git+https://github.com/$Owner/$Repo.git@$Version"
-        }
-        if ($hasUv) {
-            & uv tool install --force $gitspec
-            if ($LASTEXITCODE -ne 0) { throw "git fallback install failed" }
-        } else {
-            & pipx install --force $gitspec
-            if ($LASTEXITCODE -ne 0) { throw "git fallback install failed" }
-        }
+    if ($hasUv) {
+        Write-Log "uv tool install --force $spec"
+        & uv tool install --force $spec
+        if ($LASTEXITCODE -ne 0) { throw "uv tool install failed" }
+    } else {
+        Write-Log "pipx install --force $spec"
+        & pipx install --force $spec
+        if ($LASTEXITCODE -ne 0) { throw "pipx install failed" }
     }
 }
 
-# === Main ===
 if ($Uninstall) {
     Uninstall-All
     return
@@ -282,5 +248,5 @@ Write-Host "    $BinaryName guide"
 Write-Host "    $BinaryName init --root C:\path\to\target"
 Write-Host "    $BinaryName web --root C:\path\to\target"
 Write-Host ""
-Write-Host "  Report player is prebuilt in the package (no Node/pnpm required)."
+Write-Host "  Report player is prebuilt in the git tree (no Node/pnpm required)."
 Write-Host ""

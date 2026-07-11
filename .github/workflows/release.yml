@@ -7,11 +7,10 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   release:
-    name: Build, test, publish
+    name: Test + GitHub Release
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +29,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Build report player (shipped in wheel)
+      - name: Build report player (must be present for git installs)
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
@@ -56,42 +55,34 @@ jobs:
       - name: CLI smoke
         run: uv run lk-sim --help
 
-      - name: Build package (sdist + wheel)
-        run: uv build
-
-      - name: Assert wheel ships report-player + entry points
-        run: |
-          set -euo pipefail
-          WHEEL=$(ls dist/*.whl | head -1)
-          echo "Inspecting: $WHEEL"
-          unzip -l "$WHEEL" | tee /tmp/wheel-list.txt
-          grep -q 'livekit_agent_simulator/templates/report-player/index.html' /tmp/wheel-list.txt
-          grep -q 'livekit_agent_simulator/templates/report-player/assets/' /tmp/wheel-list.txt
-          grep -q 'livekit_agent_simulator/templates/cues/' /tmp/wheel-list.txt
-          unzip -p "$WHEEL" '*/entry_points.txt' | tee /tmp/entry_points.txt
-          grep -q '^lk-sim = ' /tmp/entry_points.txt
-          grep -q '^livekit-agent-simulator-mcp = ' /tmp/entry_points.txt
-          echo "Wheel OK: report-player + lk-sim console scripts present."
-
-      - name: Publish to PyPI
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          if [ -z "${UV_PUBLISH_TOKEN:-}" ]; then
-            echo "PYPI_API_TOKEN not configured — skipping PyPI publish (GitHub Release still created)."
-            exit 0
-          fi
-          # Keep existing artifacts; do not clean dist/
-          uv publish
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            dist/*
             install.sh
             install.ps1
+          body: |
+            ## Install
+
+            Distribution is **git + uv/pipx only** (no PyPI / wheel publish).
+
+            ```bash
+            # macOS / Linux — pin to this tag
+            curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --from-git ${{ github.ref_name }} --verify
+
+            # Windows PowerShell
+            irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
+            # then if needed: re-run with -FromGit -GitRef ${{ github.ref_name }}
+            ```
+
+            Or directly:
+
+            ```bash
+            uv tool install --force "git+https://github.com/quangdang46/livekit-agent-simulator.git@${{ github.ref_name }}"
+            ```
+
+            Report player is prebuilt under `templates/report-player/` in the tagged tree — no Node on the user machine.
 
       - name: Release summary
         if: always()
@@ -103,12 +94,12 @@ jobs:
             echo ""
             echo "### Pipeline"
             echo "- pnpm web build → templates/report-player/"
-            echo "- pytest"
-            echo "- uv build (sdist + wheel)"
-            echo "- wheel assert (report-player + lk-sim entry points)"
-            echo "- PyPI publish if \`PYPI_API_TOKEN\` set (not deleted if missing)"
-            echo "- GitHub Release with dist/*"
+            echo "- pytest + lk-sim --help"
+            echo "- GitHub Release with install.sh + install.ps1"
+            echo "- **No** wheel / sdist / PyPI publish"
             echo ""
-            echo "### Artifacts"
-            ls -la dist/ 2>/dev/null || echo "(no dist/)"
+            echo "### Install"
+            echo "\`\`\`bash"
+            echo "curl -fsSL .../install.sh | bash -s -- --from-git ${GITHUB_REF_NAME}"
+            echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"

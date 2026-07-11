@@ -1,24 +1,20 @@
 #!/usr/bin/env bash
-# Production installer for livekit-agent-simulator (lk-sim + MCP).
+# Install livekit-agent-simulator from GitHub (git + uv/pipx). No PyPI / wheel.
 #
-#   # macOS / Linux
 #   curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 #
-# Options (pass after bash -s -- ):
-#   --version v0.1.0 | 0.1.0   pin release / PyPI version
-#   --from-git [ref]           install from git (default: main if no PyPI)
-#   --ref REF                  git ref when using --from-git (default: main)
-#   --no-mcp                   skip MCP provider auto-config
-#   --verify                   run lk-sim --help after install
-#   --easy-mode                ensure ~/.local/bin on PATH via shell rc
+# Options (bash -s -- …):
+#   --version / --ref v0.1.0|main   git tag or branch (default: main)
+#   --no-mcp                        skip MCP auto-config
+#   --verify                        run lk-sim --help after install
+#   --easy-mode                     ensure ~/.local/bin on PATH via shell rc
 #   --quiet / -q
-#   --uninstall                remove uv/pipx tool + MCP entries
+#   --uninstall
 #   --help
 #
 set -euo pipefail
 umask 022
 
-# === Config ===
 BINARY_NAME="lk-sim"
 MCP_BIN="livekit-agent-simulator-mcp"
 MCP_SERVER_NAME="livekit-agent-simulator"
@@ -26,26 +22,20 @@ PKG_NAME="livekit-agent-simulator"
 OWNER="quangdang46"
 REPO="livekit-agent-simulator"
 DEST="${DEST:-$HOME/.local/bin}"
-VERSION="${VERSION:-${LK_SIM_VERSION:-}}"
 GIT_REF="${LK_SIM_REF:-main}"
-FROM_GIT="${LK_SIM_FROM_GIT:-0}"
 QUIET=0
 EASY=0
 VERIFY=0
 UNINSTALL=0
 NO_MCP=0
-MAX_RETRIES=3
-DOWNLOAD_TIMEOUT=120
 LOCK_DIR="${TMPDIR:-/tmp}/${BINARY_NAME}-install.lock.d"
-TMP=""
 
-# === Logging ===
 log_info()    { [ "$QUIET" -eq 1 ] && return; echo "[${BINARY_NAME}] $*" >&2; }
 log_warn()    { echo "[${BINARY_NAME}] WARN: $*" >&2; }
 log_success() { [ "$QUIET" -eq 1 ] && return; echo "✓ $*" >&2; }
 die()         { echo "ERROR: $*" >&2; exit 1; }
 
-cleanup() { rm -rf "$TMP" "$LOCK_DIR" 2>/dev/null || true; }
+cleanup() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
 trap cleanup EXIT
 
 acquire_lock() {
@@ -58,57 +48,41 @@ acquire_lock() {
 
 usage() {
   cat <<EOF
-Install ${PKG_NAME} (CLI: ${BINARY_NAME}, MCP: ${MCP_BIN})
+Install ${PKG_NAME} from GitHub (uv tool / pipx). No PyPI.
 
-Usage:
   curl -fsSL https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh | bash
-  curl -fsSL .../install.sh | bash -s -- --version v0.1.0 --verify
-  curl -fsSL .../install.sh | bash -s -- --from-git main --no-mcp
+  curl -fsSL .../install.sh | bash -s -- --ref v0.1.0 --verify
 
 Options:
-  --version VER     PyPI / release tag (v0.1.0 or 0.1.0)
-  --from-git [ref]  Force git install (default ref: main)
-  --ref REF         Git ref with --from-git
-  --no-mcp          Do not auto-configure AI coding MCP clients
-  --easy-mode       Append DEST to PATH in ~/.zshrc / ~/.bashrc if missing
-  --verify          Run ${BINARY_NAME} --help after install
+  --version / --ref REF   git tag or branch (default: main)
+  --no-mcp                skip MCP provider auto-config
+  --easy-mode             append DEST to PATH in shell rc
+  --verify                run ${BINARY_NAME} --help
   --quiet, -q
-  --uninstall       Remove tool + MCP registrations
+  --uninstall
   -h, --help
 EOF
   exit 0
 }
 
-# === Args ===
 while [ $# -gt 0 ]; do
   case "$1" in
-    --version)      VERSION="$2"; shift 2 ;;
-    --version=*)    VERSION="${1#*=}"; shift ;;
-    --from-git)
-      FROM_GIT=1
+    --version|--ref)   GIT_REF="$2"; shift 2 ;;
+    --version=*|--ref=*) GIT_REF="${1#*=}"; shift ;;
+    --from-git)        # accepted for back-compat; always git
       if [ $# -ge 2 ] && [[ "${2:-}" != -* ]]; then GIT_REF="$2"; shift 2; else shift; fi
       ;;
-    --from-git=*)   FROM_GIT=1; GIT_REF="${1#*=}"; shift ;;
-    --ref)          GIT_REF="$2"; FROM_GIT=1; shift 2 ;;
-    --ref=*)        GIT_REF="${1#*=}"; FROM_GIT=1; shift ;;
-    --no-mcp)       NO_MCP=1; shift ;;
-    --easy-mode)    EASY=1; shift ;;
-    --verify)       VERIFY=1; shift ;;
-    --quiet|-q)     QUIET=1; shift ;;
-    --uninstall)    UNINSTALL=1; shift ;;
-    -h|--help)      usage ;;
-    *)              shift ;;
+    --from-git=*)      GIT_REF="${1#*=}"; shift ;;
+    --no-mcp)          NO_MCP=1; shift ;;
+    --easy-mode)       EASY=1; shift ;;
+    --verify)          VERIFY=1; shift ;;
+    --quiet|-q)        QUIET=1; shift ;;
+    --uninstall)       UNINSTALL=1; shift ;;
+    -h|--help)         usage ;;
+    *)                 shift ;;
   esac
 done
 
-# Normalize version: strip leading v for PyPI, keep for git tags display
-pypi_version() {
-  local v="$1"
-  v="${v#v}"
-  echo "$v"
-}
-
-# === PATH helpers ===
 maybe_add_path() {
   case ":$PATH:" in *":$DEST:"*) return 0 ;; esac
   if [ "$EASY" -eq 1 ]; then
@@ -122,7 +96,6 @@ maybe_add_path() {
   log_warn "Ensure CLI on PATH: export PATH=\"$DEST:\$PATH\""
 }
 
-# === JSON merge (MCP config) ===
 _json_merge() {
   local file="$1" key="$2" value="$3"
   mkdir -p "$(dirname "$file")"
@@ -133,8 +106,7 @@ _json_merge() {
   if command -v jq >/dev/null 2>&1; then
     local tmpf; tmpf="$(mktemp)"
     jq --argjson val "$value" --arg k "$key" '
-      . as $root
-      | if has($k) then .[$k] = ((.[$k] // {}) + $val) else .[$k] = $val end
+      if has($k) then .[$k] = ((.[$k] // {}) + $val) else .[$k] = $val end
     ' "$file" >"$tmpf" && mv "$tmpf" "$file"
   elif command -v python3 >/dev/null 2>&1; then
     KEY="$key" VAL="$value" FILE="$file" python3 - <<'PY'
@@ -147,9 +119,7 @@ except Exception:
     d = {}
 if not isinstance(d, dict):
     d = {}
-cur = d.get(k) or {}
-if not isinstance(cur, dict):
-    cur = {}
+cur = d.get(k) if isinstance(d.get(k), dict) else {}
 cur.update(v)
 d[k] = cur
 with open(f, "w", encoding="utf-8") as out:
@@ -178,8 +148,9 @@ except Exception:
     raise SystemExit(0)
 if isinstance(d, dict) and isinstance(d.get(p), dict):
     d[p].pop(s, None)
-    json.dump(d, open(f, "w", encoding="utf-8"), indent=2)
-    open(f, "a", encoding="utf-8").write("\n")
+    with open(f, "w", encoding="utf-8") as out:
+        json.dump(d, out, indent=2)
+        out.write("\n")
 PY
   fi
 }
@@ -190,7 +161,6 @@ _toml_upsert_mcp() {
   [ -f "$file" ] || touch "$file"
   if grep -q "^\[mcp_servers\.${server_name}\]" "$file" 2>/dev/null; then
     local tmpf; tmpf="$(mktemp)"
-    # shellcheck disable=SC2016
     awk -v sn="$server_name" -v cmd="$command_path" '
       BEGIN{insec=0}
       $0 ~ "^\\[mcp_servers\\." sn "\\]" {insec=1; print; next}
@@ -227,15 +197,9 @@ resolve_mcp_binary() {
     command -v "$MCP_BIN"
     return 0
   fi
-  if [ -x "$DEST/$MCP_BIN" ]; then
-    echo "$DEST/$MCP_BIN"
-    return 0
-  fi
-  # uv tool often puts bins in ~/.local/bin
-  if [ -x "$HOME/.local/bin/$MCP_BIN" ]; then
-    echo "$HOME/.local/bin/$MCP_BIN"
-    return 0
-  fi
+  for c in "$DEST/$MCP_BIN" "$HOME/.local/bin/$MCP_BIN"; do
+    [ -x "$c" ] && { echo "$c"; return 0; }
+  done
   return 1
 }
 
@@ -299,9 +263,6 @@ configure_all_mcp_providers() {
   case "$(uname -s)" in
     Darwin*)
       cline_settings="$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
-      ;;
-    MINGW*|MSYS*|CYGWIN*)
-      cline_settings="${APPDATA:-}/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
       ;;
     *)
       cline_settings="$HOME/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
@@ -368,39 +329,11 @@ do_uninstall() {
 
 [ "$UNINSTALL" -eq 1 ] && do_uninstall
 
-# === Install methods ===
-install_with_uv() {
-  local spec="$1"
-  log_info "uv tool install --force $spec"
-  uv tool install --force "$spec"
-}
-
-install_with_pipx() {
-  local spec="$1"
-  log_info "pipx install --force $spec"
-  pipx install --force "$spec"
-}
-
-resolve_latest_tag() {
-  local tag=""
-  tag=$(curl -fsSL --connect-timeout 10 --max-time 30 \
-    -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" 2>/dev/null \
-    | grep '"tag_name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/') || true
-  if ! [[ "${tag:-}" =~ ^v[0-9] ]]; then
-    tag=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-      "https://github.com/${OWNER}/${REPO}/releases/latest" 2>/dev/null \
-      | sed -E 's|.*/tag/||') || true
-  fi
-  echo "${tag:-}"
-}
-
 main() {
   acquire_lock
-  TMP=$(mktemp -d)
   mkdir -p "$DEST"
 
-  log_info "Installing ${PKG_NAME} (CLI ${BINARY_NAME} + MCP ${MCP_BIN})"
+  log_info "Installing ${PKG_NAME} from git@${GIT_REF} (no PyPI)"
   log_info "Dest PATH hint: $DEST"
 
   local installer=""
@@ -412,46 +345,13 @@ main() {
     die "Need uv or pipx. Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
   fi
 
-  local spec=""
-  if [ "$FROM_GIT" -eq 1 ]; then
-    spec="git+https://github.com/${OWNER}/${REPO}.git@${GIT_REF}"
-    log_info "Source: git @ ${GIT_REF}"
-  elif [ -n "$VERSION" ]; then
-    local pv; pv=$(pypi_version "$VERSION")
-    # Prefer PyPI pin; fall back to git tag if pip fails later
-    spec="${PKG_NAME}==${pv}"
-    log_info "Source: PyPI ${spec} (fallback git tag if needed)"
-  else
-    # Prefer latest PyPI; if empty force git main
-    spec="${PKG_NAME}"
-    log_info "Source: PyPI latest ${PKG_NAME}"
-  fi
+  local spec="git+https://github.com/${OWNER}/${REPO}.git@${GIT_REF}"
+  log_info "Source: $spec"
 
-  set +e
   if [ "$installer" = "uv" ]; then
-    install_with_uv "$spec"
-    local rc=$?
+    uv tool install --force "$spec"
   else
-    install_with_pipx "$spec"
-    local rc=$?
-  fi
-  set -e
-
-  if [ "$rc" -ne 0 ]; then
-    log_warn "Primary install failed — falling back to git@${GIT_REF}"
-    local gitspec="git+https://github.com/${OWNER}/${REPO}.git@${GIT_REF}"
-    if [ -n "$VERSION" ] && [[ "$VERSION" =~ ^v ]]; then
-      gitspec="git+https://github.com/${OWNER}/${REPO}.git@${VERSION}"
-    elif [ -n "$VERSION" ]; then
-      local tag
-      tag=$(resolve_latest_tag)
-      [ -n "$tag" ] && gitspec="git+https://github.com/${OWNER}/${REPO}.git@${tag}"
-    fi
-    if [ "$installer" = "uv" ]; then
-      install_with_uv "$gitspec"
-    else
-      install_with_pipx "$gitspec"
-    fi
+    pipx install --force "$spec"
   fi
 
   maybe_add_path
@@ -482,11 +382,10 @@ main() {
   echo "    ${BINARY_NAME} init --root /path/to/target"
   echo "    ${BINARY_NAME} web --root /path/to/target"
   echo ""
-  echo "  Report player is prebuilt in the package (no Node/pnpm required)."
+  echo "  Report player is prebuilt in the git tree (no Node/pnpm required)."
   echo ""
 }
 
-# curl|bash safety: run main only when executed (not sourced)
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
   { main "$@"; }
 fi

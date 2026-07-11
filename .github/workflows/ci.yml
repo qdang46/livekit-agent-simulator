@@ -60,65 +60,13 @@ jobs:
       - name: CLI smoke
         run: uv run --python ${{ matrix.python-version }} lk-sim --help
 
-  build:
-    name: Build package
+  summary:
+    name: CI summary
     runs-on: ubuntu-latest
     needs: test
-
+    if: always()
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Build report player
-        working-directory: web
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Build sdist and wheel
-        run: uv build
-
-      - name: Assert wheel ships report-player + entry points
-        run: |
-          set -euo pipefail
-          WHEEL=$(ls dist/*.whl | head -1)
-          echo "Inspecting: $WHEEL"
-          unzip -l "$WHEEL" | tee /tmp/wheel-list.txt
-          grep -q 'livekit_agent_simulator/templates/report-player/index.html' /tmp/wheel-list.txt
-          grep -q 'livekit_agent_simulator/templates/report-player/assets/' /tmp/wheel-list.txt
-          unzip -p "$WHEEL" '*/entry_points.txt' | tee /tmp/entry_points.txt
-          grep -q '^lk-sim = ' /tmp/entry_points.txt
-          echo "Wheel OK: report-player + lk-sim present."
-
-      - name: Upload dist artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-py312
-          path: dist/*
-          if-no-files-found: error
-
-      - name: CI summary
-        if: always()
+      - name: Write summary
         run: |
           {
             echo "## CI summary"
@@ -127,7 +75,7 @@ jobs:
             echo "|-------|--------|"
             echo "| report player (Vite) | required |"
             echo "| pytest (3.10, 3.12) | required |"
-            echo "| \`uv build\` | required |"
-            echo "| wheel has report-player + lk-sim | required |"
-            echo "| artifact | \`dist-py312\` |"
+            echo "| lk-sim --help | required |"
+            echo ""
+            echo "Distribution: **git + uv/pipx** via install.sh / install.ps1 (no PyPI / wheel publish)."
           } >> "$GITHUB_STEP_SUMMARY"

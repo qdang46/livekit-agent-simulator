@@ -43,20 +43,20 @@ lk-sim guide
 lk-sim web --root /path/to/target   # no Node — report player is prebuilt into the package
 ```
 
-Installer options (Unix):
+Installer options (Unix) — **git only** (no PyPI / wheel):
 
 ```bash
-# pin version (PyPI, with git fallback)
-curl -fsSL ".../install.sh" | bash -s -- --version v0.1.0 --verify
+# pin to a tag
+curl -fsSL ".../install.sh" | bash -s -- --ref v0.1.0 --verify
 
-# force git main + skip MCP auto-config
-curl -fsSL ".../install.sh" | bash -s -- --from-git main --no-mcp
+# main + skip MCP auto-config
+curl -fsSL ".../install.sh" | bash -s -- --ref main --no-mcp
 
 # uninstall tool + MCP registrations
 curl -fsSL ".../install.sh" | bash -s -- --uninstall
 ```
 
-Windows: `.\install.ps1 -Version v0.1.0 -Verify`, `-FromGit`, `-NoMcp`, `-Uninstall`.
+Windows: `.\install.ps1 -GitRef v0.1.0 -Verify`, `-NoMcp`, `-Uninstall`.
 
 By default the installer also registers the **MCP** server `livekit-agent-simulator`
 (`livekit-agent-simulator-mcp`) into common AI coding tools (Claude Code, Cursor, Cline,
@@ -64,8 +64,8 @@ Windsurf, VS Code Copilot, Gemini CLI, Amazon Q, OpenCode, Codex, Warp when pres
 
 ### Report player (maintainers)
 
-Source: `web/` (Vite + TypeScript). **Users never run this** — release CI builds into
-`templates/report-player/` and ships it in the wheel.
+Source: `web/` (Vite + TypeScript). **Users never run this** — CI builds into
+`templates/report-player/` in the repo; install is from git, so the player is already there.
 
 ```bash
 pnpm --dir web install
@@ -76,9 +76,10 @@ pnpm --dir web dev      # HMR; proxy /api + /runs → lk-sim web on :8765
 ### Release (maintainers)
 
 ```bash
-# after main is green:
+# after main is green (player assets committed or built on the tag job):
 git tag v0.1.0 && git push origin main --tags
-# → GitHub Actions: pnpm build → pytest → uv build → optional PyPI → GitHub Release
+# → GitHub Actions: pnpm build → pytest → GitHub Release (install.sh + install.ps1 only)
+# No PyPI / no wheel publish
 ```
 
 ## Quick start
@@ -157,15 +158,15 @@ Dev checkout (package not installed globally):
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| [CI](.github/workflows/ci.yml) | PR / push → `main` | `pytest` (Python 3.10 + 3.12), `lk-sim --help`, `uv build` |
-| [Release](.github/workflows/release.yml) | tag `v*` | test → build → GitHub Release (wheel + sdist); PyPI if `PYPI_API_TOKEN` secret is set |
+| [CI](.github/workflows/ci.yml) | PR / push → `main` | pnpm report-player build, `pytest` (3.10 + 3.12), `lk-sim --help` |
+| [Release](.github/workflows/release.yml) | tag `v*` | pnpm build → pytest → GitHub Release (`install.sh` + `install.ps1` only; **no** PyPI / wheel) |
 
 Local check:
 
 ```bash
 uv sync --extra dev
+pnpm --dir web build
 uv run pytest -q
-uv build
 ```
 
 Release:
