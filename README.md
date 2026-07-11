@@ -26,17 +26,18 @@ paths — use `execute_*` to validate then run.
 
 ## Install (user machine)
 
-**One command.** CI builds a **wheel** on each release (report player included).
-The installer bootstraps [uv](https://docs.astral.sh/uv/) if needed, then installs
-that prebuilt wheel from GitHub Releases — **no package build on your machine**.
-(No PyPI; fallback to git/source only for `--ref main` or when no wheel exists.)
+**Download only — no uv/pip/build on your machine.** CI ships a portable pack
+(embedded Python + deps + report player). The installer unzips it and adds `lk-sim` to PATH.
 
 ```bash
-# macOS / Linux  (default = latest release wheel)
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
+# macOS / Linux (from release asset — preferred)
+curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" | bash -s -- --verify
+```
 
-# Windows PowerShell  (default = latest release wheel)
-irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
+```powershell
+# Windows PowerShell (from release asset — preferred)
+irm "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.ps1" -OutFile "$env:TEMP\lk-sim-install.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\lk-sim-install.ps1" -Verify
 ```
 
 Then:
@@ -46,31 +47,17 @@ lk-sim guide
 lk-sim web --root /path/to/target   # no Node — report player is prebuilt into the package
 ```
 
-Installer options (Unix) — auto-bootstraps uv; prefers CI wheel:
+Installer options:
 
 ```bash
-# pin to a tag (downloads CI .whl from that release)
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref v0.1.0 --verify
-
-# tip of main (source / no wheel) + skip MCP auto-config
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref main --no-mcp
-
-# uninstall tool + MCP registrations
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --uninstall
+curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" | bash -s -- --ref v0.1.0 --verify
+curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" | bash -s -- --no-mcp
+curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" | bash -s -- --uninstall
 ```
 
-Windows PowerShell (full examples) — same path (CI wheel + bootstrap uv):
-
 ```powershell
-# default = latest release wheel
-irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
-
-# pin tag + verify
-irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
 .\install.ps1 -GitRef v0.1.0 -Verify
-
-# tip of main / uninstall
-.\install.ps1 -GitRef main -NoMcp
+.\install.ps1 -NoMcp
 .\install.ps1 -Uninstall
 ```
 
@@ -81,7 +68,7 @@ Windsurf, VS Code Copilot, Gemini CLI, Amazon Q, OpenCode, Codex, Warp when pres
 ### Report player (maintainers)
 
 Source: `web/` (Vite + TypeScript). **Users never run this** — CI builds into
-`templates/report-player/` in the repo; install is from git, so the player is already there.
+the portable pack / wheel.
 
 ```bash
 pnpm --dir web install
@@ -94,9 +81,10 @@ pnpm --dir web dev      # HMR; proxy /api + /runs → lk-sim web on :8765
 ```bash
 # after main is green:
 git tag -f v0.1.0 && git push origin main && git push origin v0.1.0 --force
-# → GitHub Actions: pnpm build → pytest → uv build --wheel → GitHub Release
-#    assets: install.sh + install.ps1 + livekit_agent_simulator-0.1.0-py3-none-any.whl
-# No PyPI (wheel is GitHub Releases only). Keep single version 0.1.0 while pre-1.0.
+# → GitHub Actions:
+#    wheel + portable packs (windows-x64, linux-x64, macos-arm64, macos-x64)
+#    assets: install.sh + install.ps1 + lk-sim-*.zip + *.whl
+# Keep single version 0.1.0 while pre-1.0 (force-retag).
 ```
 
 ## Quick start
@@ -178,7 +166,7 @@ Dev checkout (package not installed globally):
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | [CI](.github/workflows/ci.yml) | PR / push → `main` | pnpm report-player build, `pytest` (3.10 + 3.12), `lk-sim --help` |
-| [Release](.github/workflows/release.yml) | tag `v*` | pnpm build → pytest → **uv build --wheel** → GitHub Release (`install.sh` + `install.ps1` + `.whl`; **no** PyPI) |
+| [Release](.github/workflows/release.yml) | tag `v*` | pytest → wheel → **portable packs** (win/linux/mac) → GitHub Release |
 
 Local check:
 

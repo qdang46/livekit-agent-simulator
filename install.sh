@@ -1,43 +1,31 @@
 #!/usr/bin/env bash
-# Install livekit-agent-simulator from GitHub Releases. Zero prereqs:
-# bootstraps uv if missing; prefers CI-built wheel; else git / source archive.
-# No PyPI.
+# Install lk-sim from GitHub Releases (CI portable pack).
+# No uv/pip/build on the user machine - download zip + PATH.
 #
-#   curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
-#
-# Options (bash -s -- …):
-#   --version / --ref v0.1.0|main   release tag or branch (default: latest release)
-#   --from-git                      skip wheel; install from git/source only
-#   --no-mcp                        skip MCP auto-config
-#   --verify                        run lk-sim --help after install
-#   --easy-mode                     ensure ~/.local/bin on PATH via shell rc
-#   --quiet / -q
-#   --uninstall
-#   --help
+#   curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" | bash
 #
 set -euo pipefail
 umask 022
 
 BINARY_NAME="lk-sim"
-# Prefer `lk-sim mcp`; optional console script lk-sim-mcp also exists
 MCP_SERVER_NAME="livekit-agent-simulator"
 PKG_NAME="livekit-agent-simulator"
 OWNER="quangdang46"
 REPO="livekit-agent-simulator"
 DEST="${DEST:-$HOME/.local/bin}"
-# Empty default → resolve to latest GitHub Release (CI wheel). Use --ref main for tip.
+INSTALL_ROOT="${INSTALL_ROOT:-$HOME/.local/share/lk-sim}"
+CURRENT_DIR="$INSTALL_ROOT/current"
 GIT_REF="${LK_SIM_REF:-}"
 QUIET=0
 EASY=0
 VERIFY=0
 UNINSTALL=0
 NO_MCP=0
-FROM_GIT=0
 LOCK_DIR="${TMPDIR:-/tmp}/${BINARY_NAME}-install.lock.d"
 
 log_info()    { [ "$QUIET" -eq 1 ] && return; echo "[${BINARY_NAME}] $*" >&2; }
 log_warn()    { echo "[${BINARY_NAME}] WARN: $*" >&2; }
-log_success() { [ "$QUIET" -eq 1 ] && return; echo "✓ $*" >&2; }
+log_success() { [ "$QUIET" -eq 1 ] && return; echo "OK $*" >&2; }
 die()         { echo "ERROR: $*" >&2; exit 1; }
 
 cleanup() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
@@ -53,21 +41,15 @@ acquire_lock() {
 
 usage() {
   cat <<EOF
-Install ${PKG_NAME} from GitHub Releases (CI wheel). No PyPI.
+Install ${PKG_NAME} portable pack from GitHub Releases (CI-built).
 
-  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash
-  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref v0.1.0 --verify
-  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref main --no-mcp
-  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --uninstall
+  curl -fsSL "https://github.com/${OWNER}/${REPO}/releases/download/v0.1.0/install.sh" | bash
+  curl -fsSL "https://github.com/${OWNER}/${REPO}/releases/download/v0.1.0/install.sh" | bash -s -- --ref v0.1.0 --verify
 
-CLI: ${BINARY_NAME}   |   MCP: ${BINARY_NAME} mcp
-
-Default ref = latest release (downloads CI-built .whl). Bootstraps uv if missing.
-Falls back to git / source zip when no wheel (e.g. --ref main).
+Default ref = latest release. No uv/pip on the user machine.
 
 Options:
-  --version / --ref REF   release tag or branch (default: latest release)
-  --from-git              skip wheel; install from git/source only
+  --version / --ref REF   release tag (default: latest)
   --no-mcp                skip MCP provider auto-config
   --easy-mode             append DEST to PATH in shell rc
   --verify                run ${BINARY_NAME} --help
@@ -82,11 +64,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --version|--ref)   GIT_REF="$2"; shift 2 ;;
     --version=*|--ref=*) GIT_REF="${1#*=}"; shift ;;
-    --from-git)
-      FROM_GIT=1
-      if [ $# -ge 2 ] && [[ "${2:-}" != -* ]]; then GIT_REF="$2"; shift 2; else shift; fi
-      ;;
-    --from-git=*)      FROM_GIT=1; GIT_REF="${1#*=}"; shift ;;
+    --from-git|--from-git=*) shift; log_warn "--from-git ignored (portable-only installer)" ;;
     --no-mcp)          NO_MCP=1; shift ;;
     --easy-mode)       EASY=1; shift ;;
     --verify)          VERIFY=1; shift ;;
@@ -141,7 +119,7 @@ with open(f, "w", encoding="utf-8") as out:
     out.write("\n")
 PY
   else
-    log_warn "No jq/python3 — skip JSON merge for $file"
+    log_warn "No jq/python3 - skip JSON merge for $file"
     return 1
   fi
 }
@@ -169,211 +147,51 @@ PY
   fi
 }
 
-_toml_upsert_mcp() {
-  local file="$1" server_name="$2" command_path="$3"
-  mkdir -p "$(dirname "$file")"
-  [ -f "$file" ] || touch "$file"
-  if grep -q "^\[mcp_servers\.${server_name}\]" "$file" 2>/dev/null; then
-    local tmpf; tmpf="$(mktemp)"
-    awk -v sn="$server_name" -v cmd="$command_path" '
-      BEGIN{insec=0}
-      $0 ~ "^\\[mcp_servers\\." sn "\\]" {insec=1; print; next}
-      insec && /^\[/ {insec=0}
-      insec && /^command[[:space:]]*=/ {print "command = \"" cmd "\""; next}
-      {print}
-    ' "$file" >"$tmpf" && mv "$tmpf" "$file"
-  else
-    cat >>"$file" <<TOML
-
-[mcp_servers.${server_name}]
-type = "stdio"
-command = "${command_path}"
-args = []
-TOML
-  fi
-}
-
-_toml_remove_mcp() {
-  local file="$1" server_name="$2"
-  [ -f "$file" ] || return 0
-  local tmpf; tmpf="$(mktemp)"
-  awk -v sn="$server_name" '
-    BEGIN{skip=0}
-    $0 ~ "^\\[mcp_servers\\." sn "\\]" {skip=1; next}
-    skip && /^\[/ {skip=0}
-    skip {next}
-    {print}
-  ' "$file" >"$tmpf" && mv "$tmpf" "$file"
-}
-
 resolve_lk_sim() {
   if command -v "$BINARY_NAME" >/dev/null 2>&1; then
     command -v "$BINARY_NAME"
     return 0
   fi
-  for c in "$DEST/$BINARY_NAME" "$HOME/.local/bin/$BINARY_NAME"; do
+  for c in "$DEST/$BINARY_NAME" "$CURRENT_DIR/$BINARY_NAME"; do
     [ -x "$c" ] && { echo "$c"; return 0; }
   done
   return 1
 }
 
-configure_mcp_provider() {
-  local provider_name="$1" settings_file="$2" json_key="$3" binary="$4"
-  [ -n "$binary" ] && [ -x "$binary" ] || return 0
-  log_info "MCP: $provider_name → $settings_file  (${binary} mcp)"
+configure_all_mcp_providers() {
+  local lk_bin
+  lk_bin=$(resolve_lk_sim) || {
+    log_warn "lk-sim not found - skip MCP config"
+    return 0
+  }
+  log_info "MCP providers -> ${lk_bin} mcp"
   local mcp_entry
   mcp_entry=$(cat <<EOF
 {
   "${MCP_SERVER_NAME}": {
-    "command": "${binary}",
+    "command": "${lk_bin}",
     "args": ["mcp"],
     "env": {}
   }
 }
 EOF
 )
-  _json_merge "$settings_file" "$json_key" "$mcp_entry" || true
+  _json_merge "$HOME/.claude.json" "mcpServers" "$mcp_entry" || true
+  _json_merge "$HOME/.cursor/mcp.json" "mcpServers" "$mcp_entry" || true
+  _json_merge "$HOME/.codeium/windsurf/mcp_config.json" "mcpServers" "$mcp_entry" || true
+  _json_merge "$HOME/.vscode/mcp.json" "servers" "$mcp_entry" || true
+  _json_merge "$HOME/.gemini/settings.json" "mcpServers" "$mcp_entry" || true
 }
 
-configure_mcp_opencode() {
-  local binary="$1"
-  local settings_file="$HOME/.opencode.json"
-  [ ! -f "$settings_file" ] && [ -d "$HOME/.config/opencode" ] && settings_file="$HOME/.config/opencode/.opencode.json"
-  [ -f "$settings_file" ] || [ -d "$(dirname "$settings_file")" ] || return 0
-  local mcp_entry
-  mcp_entry=$(cat <<EOF
-{
-  "${MCP_SERVER_NAME}": {
-    "type": "stdio",
-    "command": "${binary}",
-    "args": ["mcp"],
-    "env": []
-  }
-}
-EOF
-)
-  _json_merge "$settings_file" "mcpServers" "$mcp_entry" || true
-}
-
-configure_mcp_codex() {
-  local binary="$1"
-  local config_file="$HOME/.codex/config.toml"
-  [ -d "$(dirname "$config_file")" ] || return 0
-  log_info "MCP: Codex CLI → $config_file"
-  # Codex: command + args for `lk-sim mcp`
-  mkdir -p "$(dirname "$config_file")"
-  [ -f "$config_file" ] || touch "$config_file"
-  if grep -q "^\[mcp_servers\.${MCP_SERVER_NAME}\]" "$config_file" 2>/dev/null; then
-    local tmpf; tmpf="$(mktemp)"
-    awk -v sn="$MCP_SERVER_NAME" -v cmd="$binary" '
-      BEGIN{insec=0}
-      $0 ~ "^\\[mcp_servers\\." sn "\\]" {insec=1; print; next}
-      insec && /^\[/ {insec=0}
-      insec && /^command[[:space:]]*=/ {print "command = \"" cmd "\""; next}
-      insec && /^args[[:space:]]*=/ {print "args = [\"mcp\"]"; next}
-      {print}
-    ' "$config_file" >"$tmpf" && mv "$tmpf" "$config_file"
-  else
-    cat >>"$config_file" <<TOML
-
-[mcp_servers.${MCP_SERVER_NAME}]
-type = "stdio"
-command = "${binary}"
-args = ["mcp"]
-TOML
-  fi
-}
-
-configure_all_mcp_providers() {
-  local lk_bin
-  lk_bin=$(resolve_lk_sim) || {
-    log_warn "lk-sim not on PATH — skip MCP provider config"
-    return 0
-  }
-
-  configure_mcp_provider "Claude Code" "$HOME/.claude.json" "mcpServers" "$lk_bin"
-  configure_mcp_provider "Cursor" "$HOME/.cursor/mcp.json" "mcpServers" "$lk_bin"
-
-  local cline_settings
-  case "$(uname -s)" in
-    Darwin*)
-      cline_settings="$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
-      ;;
-    *)
-      cline_settings="$HOME/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
-      ;;
-  esac
-  [ -d "$(dirname "$cline_settings")" ] && \
-    configure_mcp_provider "Cline" "$cline_settings" "mcpServers" "$lk_bin"
-
-  configure_mcp_provider "Windsurf" "$HOME/.codeium/windsurf/mcp_config.json" "mcpServers" "$lk_bin"
-  configure_mcp_provider "VS Code Copilot" "$HOME/.vscode/mcp.json" "servers" "$lk_bin"
-  configure_mcp_provider "Gemini CLI" "$HOME/.gemini/settings.json" "mcpServers" "$lk_bin"
-  configure_mcp_provider "Amazon Q (CLI)" "$HOME/.aws/amazonq/mcp.json" "mcpServers" "$lk_bin"
-  configure_mcp_provider "Amazon Q (IDE)" "$HOME/.aws/amazonq/default.json" "mcpServers" "$lk_bin"
-
-  if [ -d ".warp" ] || [ -f "pyproject.toml" ]; then
-    configure_mcp_provider "Warp" ".warp/.mcp.json" "mcpServers" "$lk_bin"
-  fi
-
-  configure_mcp_opencode "$lk_bin"
-  configure_mcp_codex "$lk_bin"
-}
-
-uninstall_mcp_providers() {
-  _remove_mcp_from_file "$HOME/.claude.json" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file "$HOME/.cursor/mcp.json" "$MCP_SERVER_NAME" "mcpServers"
-  local cline_settings
-  case "$(uname -s)" in
-    Darwin*)
-      cline_settings="$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
-      ;;
-    *)
-      cline_settings="$HOME/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
-      ;;
-  esac
-  _remove_mcp_from_file "$cline_settings" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file "$HOME/.codeium/windsurf/mcp_config.json" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file "$HOME/.vscode/mcp.json" "$MCP_SERVER_NAME" "servers"
-  _remove_mcp_from_file "$HOME/.gemini/settings.json" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file "$HOME/.aws/amazonq/mcp.json" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file "$HOME/.aws/amazonq/default.json" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file "$HOME/.opencode.json" "$MCP_SERVER_NAME" "mcpServers"
-  _remove_mcp_from_file ".warp/.mcp.json" "$MCP_SERVER_NAME" "mcpServers"
-  _toml_remove_mcp "$HOME/.codex/config.toml" "$MCP_SERVER_NAME"
-}
-
-do_uninstall() {
+uninstall_all() {
   log_info "Uninstalling ${PKG_NAME}..."
-  if command -v uv >/dev/null 2>&1; then
-    uv tool uninstall "$PKG_NAME" 2>/dev/null || true
-  fi
-  if command -v pipx >/dev/null 2>&1; then
-    pipx uninstall "$PKG_NAME" 2>/dev/null || true
-  fi
-  rm -f "$DEST/$BINARY_NAME" "$DEST/lk-sim-mcp" \
-    "$HOME/.local/bin/$BINARY_NAME" "$HOME/.local/bin/lk-sim-mcp" 2>/dev/null || true
-  uninstall_mcp_providers
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.zprofile"; do
-    [ -f "$rc" ] && sed -i.bak "/${BINARY_NAME} installer/d" "$rc" 2>/dev/null || true
-    rm -f "${rc}.bak" 2>/dev/null || true
-  done
+  rm -rf "$INSTALL_ROOT" 2>/dev/null || true
+  rm -f "$DEST/$BINARY_NAME" "$DEST/lk-sim-mcp" 2>/dev/null || true
+  _remove_mcp_from_file "$HOME/.claude.json" "$MCP_SERVER_NAME"
+  _remove_mcp_from_file "$HOME/.cursor/mcp.json" "$MCP_SERVER_NAME"
+  _remove_mcp_from_file "$HOME/.vscode/mcp.json" "$MCP_SERVER_NAME" "servers"
   log_success "Uninstalled ${PKG_NAME}"
   exit 0
-}
-
-# Bootstrap uv if missing (official Astral installer — no Python required).
-ensure_uv() {
-  export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
-  if command -v uv >/dev/null 2>&1; then
-    log_info "Using uv: $(command -v uv)"
-    return 0
-  fi
-  log_info "uv not found — bootstrapping from https://astral.sh/uv/install.sh"
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
-  command -v uv >/dev/null 2>&1 || die "uv bootstrap failed — see https://docs.astral.sh/uv/getting-started/installation/"
-  log_info "Bootstrapped uv: $(command -v uv)"
 }
 
 latest_release_tag() {
@@ -388,16 +206,11 @@ resolve_install_ref() {
   fi
   local latest
   latest="$(latest_release_tag || true)"
-  if [ -n "$latest" ]; then
-    log_info "Default ref → latest release ${latest} (CI wheel)" >&2
-    echo "$latest"
-    return 0
-  fi
-  log_warn "No GitHub releases found — using main (source install)" >&2
-  echo "main"
+  [ -n "$latest" ] || die "No GitRef and no GitHub releases. Pass --ref v0.1.0"
+  log_info "Default ref -> latest release ${latest}"
+  echo "$latest"
 }
 
-# Tag form for API: v0.1.0. Returns empty if ref is a branch.
 release_tag_from_ref() {
   local ref="$1"
   case "$ref" in
@@ -407,92 +220,61 @@ release_tag_from_ref() {
   esac
 }
 
-# Prefer CI-built wheel from GitHub Release assets (no local package build).
-install_from_release_wheel() {
-  local ref="$1" tag api_json work whl url name
-  [ "$FROM_GIT" -eq 0 ] || return 1
+portable_asset_name() {
+  local os arch
+  os="$(uname -s | tr 'A-Z' 'a-z')"
+  arch="$(uname -m)"
+  case "$os" in
+    darwin) os="macos" ;;
+    linux)  os="linux" ;;
+    msys*|cygwin*|mingw*) os="windows" ;;
+  esac
+  case "$arch" in
+    x86_64|amd64) arch="x64" ;;
+    arm64|aarch64) arch="arm64" ;;
+  esac
+  echo "lk-sim-${os}-${arch}.zip"
+}
+
+install_portable() {
+  local ref="$1" tag asset url work zip payload
   tag="$(release_tag_from_ref "$ref")"
-  [ -n "$tag" ] || return 1
+  [ -n "$tag" ] || die "Portable packs require a version tag (e.g. v0.1.0), not '$ref'"
 
-  log_info "Looking for CI wheel on release ${tag} ..."
-  api_json="$(curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${tag}" 2>/dev/null || true)"
-  [ -n "$api_json" ] || { log_warn "No GitHub release for ${tag}"; return 1; }
+  asset="$(portable_asset_name)"
+  log_info "Looking for CI portable pack on release ${tag}: ${asset}"
 
-  # Pick first asset whose name ends with .whl
-  name="$(printf '%s' "$api_json" | sed -n 's/.*"name":[[:space:]]*"\([^"]*\.whl\)".*/\1/p' | head -1)"
-  url="$(printf '%s' "$api_json" | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\.whl\)".*/\1/p' | head -1)"
-  [ -n "$name" ] && [ -n "$url" ] || { log_warn "Release ${tag} has no .whl asset"; return 1; }
+  url="$(curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${tag}" \
+    | sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*${asset}\\)\".*/\\1/p" \
+    | head -1)"
+  [ -n "$url" ] || die "Release ${tag} missing asset ${asset}"
 
-  work="$(mktemp -d "${TMPDIR:-/tmp}/lk-sim-whl.XXXXXX")"
-  whl="${work}/${name}"
-  log_info "Downloading CI wheel: ${url}"
-  if ! curl -fsSL "$url" -o "$whl" || [ ! -s "$whl" ]; then
-    log_warn "Wheel download failed"
-    rm -rf "$work"
-    return 1
-  fi
-  log_info "uv tool install --force ${whl}  (prebuilt by CI — no local package build)"
-  if ! uv tool install --force "$whl"; then
-    log_warn "uv tool install (wheel) failed"
-    rm -rf "$work"
-    return 1
-  fi
-  rm -rf "$work"
-  return 0
-}
+  work="$(mktemp -d "${TMPDIR:-/tmp}/lk-sim-portable.XXXXXX")"
+  zip="${work}/${asset}"
+  log_info "Downloading ${url}"
+  curl -fsSL "$url" -o "$zip"
+  [ -s "$zip" ] || die "empty download"
 
-# Install from GitHub source zip (no git required). Tries tag then branch.
-install_from_archive() {
-  local ref="$1" work zip url src
-  work="$(mktemp -d "${TMPDIR:-/tmp}/lk-sim-install.XXXXXX")"
-  zip="${work}/src.zip"
-  for url in \
-    "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${ref}.zip" \
-    "https://github.com/${OWNER}/${REPO}/archive/refs/heads/${ref}.zip"
-  do
-    log_info "Downloading source: $url"
-    if curl -fsSL "$url" -o "$zip" && [ -s "$zip" ]; then
-      break
-    fi
-    rm -f "$zip"
-    log_warn "Not available: $url"
-  done
-  [ -s "$zip" ] || die "Could not download source for ref '${ref}' (tried tags + branches)"
-  log_info "Extracting source archive..."
-  unzip -q "$zip" -d "$work" || die "unzip failed (install unzip or use git)"
-  src="$(find "$work" -mindepth 1 -maxdepth 1 -type d \( -name "${REPO}-*" -o -name "${REPO}" \) | head -1)"
-  [ -n "$src" ] && [ -f "${src}/pyproject.toml" ] || die "Source tree / pyproject.toml missing after extract"
-  log_info "uv tool install --force ${src}"
-  uv tool install --force "$src"
+  log_info "Extracting portable pack..."
+  mkdir -p "$work/out"
+  unzip -q "$zip" -d "$work/out"
+  payload="$(find "$work/out" -mindepth 1 -maxdepth 1 -type d -name 'lk-sim-*' | head -1)"
+  [ -n "$payload" ] || die "portable folder not found in zip"
+
+  rm -rf "$INSTALL_ROOT"
+  mkdir -p "$INSTALL_ROOT"
+  cp -a "$payload" "$CURRENT_DIR"
+  chmod +x "$CURRENT_DIR/lk-sim" "$CURRENT_DIR/lk-sim-mcp" 2>/dev/null || true
+
+  mkdir -p "$DEST"
+  ln -sfn "$CURRENT_DIR/lk-sim" "$DEST/lk-sim"
+  ln -sfn "$CURRENT_DIR/lk-sim-mcp" "$DEST/lk-sim-mcp"
+  log_info "Installed -> $CURRENT_DIR (shims in $DEST)"
+
   rm -rf "$work"
 }
 
-install_package() {
-  local ref="$1"
-  ensure_uv
-
-  # 1) CI wheel from GitHub Release
-  if install_from_release_wheel "$ref"; then
-    return 0
-  fi
-
-  # 2) git
-  local spec="git+https://github.com/${OWNER}/${REPO}.git@${ref}"
-  if command -v git >/dev/null 2>&1; then
-    log_info "Source: $spec"
-    if uv tool install --force "$spec"; then
-      return 0
-    fi
-    log_warn "git-based install failed; falling back to source archive"
-  else
-    log_info "git not on PATH — installing from GitHub source archive (no Git required)"
-  fi
-
-  # 3) source zip
-  install_from_archive "$ref"
-}
-
-[ "$UNINSTALL" -eq 1 ] && do_uninstall
+[ "$UNINSTALL" -eq 1 ] && uninstall_all
 
 main() {
   acquire_lock
@@ -501,14 +283,11 @@ main() {
   local ref
   ref="$(resolve_install_ref)"
 
-  log_info "Installing ${PKG_NAME} (ref ${ref}; CI wheel preferred; no PyPI)"
-  log_info "CLI: ${BINARY_NAME}  |  MCP: ${BINARY_NAME} mcp"
-  log_info "Dest PATH hint: $DEST"
-  log_info "Will bootstrap uv if needed (no manual pipx/uv install)"
+  log_info "Installing ${PKG_NAME} portable pack (ref ${ref})"
+  log_info "No uv/pip/build on this machine - CI already built everything"
+  install_portable "$ref"
 
-  install_package "$ref"
-
-  export PATH="${DEST}:${HOME}/.local/bin:${PATH}"
+  export PATH="${DEST}:${PATH}"
   maybe_add_path
 
   if [ "$NO_MCP" -eq 0 ]; then
@@ -527,22 +306,17 @@ main() {
 
   echo ""
   log_success "${PKG_NAME} installed"
-  if command -v "$BINARY_NAME" >/dev/null 2>&1; then
-    echo "  CLI:  $(command -v "$BINARY_NAME")"
-  elif lkb=$(resolve_lk_sim 2>/dev/null); then
-    echo "  CLI:  $lkb"
-  fi
   if lkb=$(resolve_lk_sim 2>/dev/null); then
+    echo "  CLI:  $lkb"
     echo "  MCP:  $lkb mcp"
   fi
+  echo "  Pack: $CURRENT_DIR"
   echo ""
   echo "  Quick start:"
   echo "    ${BINARY_NAME} guide"
   echo "    ${BINARY_NAME} init --root /path/to/target"
   echo "    ${BINARY_NAME} web --root /path/to/target"
-  echo "    ${BINARY_NAME} mcp    # MCP server (stdio)"
-  echo ""
-  echo "  Report player ships inside the CI wheel (no Node/pnpm required)."
+  echo "    ${BINARY_NAME} mcp"
   echo ""
 }
 

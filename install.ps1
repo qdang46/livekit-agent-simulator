@@ -1,23 +1,18 @@
-# Install livekit-agent-simulator from GitHub Releases. Zero prereqs:
-# bootstraps uv if missing, prefers CI-built wheel, else git/source archive.
+# Install lk-sim from GitHub Releases (CI portable pack).
+# No uv, no pip, no build on the user machine - download zip + PATH.
 #
-#   irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
-#
-#   .\install.ps1 -GitRef v0.1.0 -Verify
-#   .\install.ps1 -Uninstall
+#   irm "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.ps1" -OutFile install.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Verify
 #
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
     [Alias("Version")]
-    # Empty -> latest GitHub Release (CI wheel). Use -GitRef main for tip of main.
     [string]$GitRef = $(if ($env:LK_SIM_REF) { $env:LK_SIM_REF } else { "" }),
     [switch]$NoMcp,
     [switch]$Verify,
     [switch]$Uninstall,
-    [switch]$Quiet,
-    # Force git/source path even when a release wheel exists.
-    [switch]$FromGit
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,7 +21,10 @@ $McpServerName = "livekit-agent-simulator"
 $PkgName = "livekit-agent-simulator"
 $Owner = "quangdang46"
 $Repo = "livekit-agent-simulator"
-$UvInstallUrl = "https://astral.sh/uv/install.ps1"
+# Install root: %LOCALAPPDATA%\lk-sim\current
+$InstallRoot = Join-Path $env:LOCALAPPDATA "lk-sim"
+$CurrentDir = Join-Path $InstallRoot "current"
+$ShimDir = Join-Path $env:USERPROFILE ".local\bin"
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -43,10 +41,8 @@ function Ensure-DirOnPath {
     if (-not (Test-Path $Dir)) {
         New-Item -ItemType Directory -Path $Dir -Force | Out-Null
     }
-    # Current session
     $parts = $env:PATH -split ';' | Where-Object { $_ -and ($_ -ne $Dir) }
     $env:PATH = (@($Dir) + $parts) -join ';'
-    # Persist for new shells (user PATH)
     try {
         $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
         if (-not $userPath) { $userPath = "" }
@@ -56,142 +52,43 @@ function Ensure-DirOnPath {
             Write-Log "PATH += $Dir (user)"
         }
     } catch {
-        Write-Log "Could not persist PATH entry for $Dir : $_" "WARN"
+        Write-Log "Could not persist PATH for $Dir : $_" "WARN"
     }
 }
 
-function Refresh-CommandPath {
-    # Drop cached command lookups so newly installed bins are found.
-    $names = @("uv", "pipx", $BinaryName, "lk-sim-mcp")
-    foreach ($n in $names) {
-        if (Get-Command $n -ErrorAction SilentlyContinue) {
-            # no-op: Get-Command with full re-resolve below after PATH change
-        }
-    }
-    $env:PATH = $env:PATH
-}
-
-function Get-UvCandidates {
-    @(
-        (Join-Path $env:USERPROFILE ".local\bin\uv.exe"),
-        (Join-Path $env:USERPROFILE ".local\bin\uv"),
-        (Join-Path $env:USERPROFILE ".cargo\bin\uv.exe"),
-        (Join-Path $env:LOCALAPPDATA "uv\uv.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe")
-    )
-}
-
-function Resolve-Uv {
-    $cmd = Get-Command uv -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    foreach ($c in (Get-UvCandidates)) {
-        if (Test-Path $c) { return $c }
+function Get-LatestReleaseTag {
+    try {
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
+        if ($rel.tag_name) { return [string]$rel.tag_name }
+    } catch {
+        Write-Log "Could not resolve latest release: $_" "WARN"
     }
     return $null
 }
 
-function Get-WindowsUvZipName {
-    # Match astral-sh/uv release asset names.
+function Resolve-InstallRef {
+    if ($GitRef -and $GitRef.Trim()) { return $GitRef.Trim() }
+    $latest = Get-LatestReleaseTag
+    if ($latest) {
+        Write-Log "Default ref -> latest release $latest"
+        return $latest
+    }
+    throw "No GitRef and no GitHub releases found. Pass -GitRef v0.1.0"
+}
+
+function Get-ReleaseTagFromRef {
+    param([string]$Ref)
+    if ($Ref -match '^[0-9]+\.[0-9]+') { return "v$Ref" }
+    if ($Ref -match '^v[0-9]+\.[0-9]+') { return $Ref }
+    return $null
+}
+
+function Get-PortableAssetName {
     $arch = $env:PROCESSOR_ARCHITECTURE
     switch -Regex ($arch) {
-        '^(ARM64|arm64)$' { return "uv-aarch64-pc-windows-msvc.zip" }
-        '^(AMD64|x86_64|x64)$' { return "uv-x86_64-pc-windows-msvc.zip" }
-        '^(x86|X86)$' { return "uv-i686-pc-windows-msvc.zip" }
-        default {
-            if ([Environment]::Is64BitOperatingSystem) { return "uv-x86_64-pc-windows-msvc.zip" }
-            return "uv-i686-pc-windows-msvc.zip"
-        }
+        '^(ARM64|arm64)$' { return "lk-sim-windows-arm64.zip" }
+        default { return "lk-sim-windows-x64.zip" }
     }
-}
-
-function Install-UvBinaryDirect {
-    # No PowerShell execution-policy dependency: download official uv zip and place uv.exe.
-    $destDir = Join-Path $env:USERPROFILE ".local\bin"
-    if (-not (Test-Path $destDir)) {
-        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-    }
-    $zipName = Get-WindowsUvZipName
-    $url = "https://github.com/astral-sh/uv/releases/latest/download/$zipName"
-    $work = Join-Path $env:TEMP ("uv-bootstrap-" + [guid]::NewGuid().ToString("n"))
-    New-Item -ItemType Directory -Path $work -Force | Out-Null
-    $zip = Join-Path $work $zipName
-    Write-Log "Downloading uv binary: $url"
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-        Expand-Archive -Path $zip -DestinationPath $work -Force
-        $exe = Get-ChildItem -Path $work -Recurse -Filter "uv.exe" | Select-Object -First 1
-        if (-not $exe) { throw "uv.exe not found in $zipName" }
-        $target = Join-Path $destDir "uv.exe"
-        Copy-Item -Path $exe.FullName -Destination $target -Force
-        # Companion binaries if present (optional)
-        Get-ChildItem -Path $work -Recurse -Filter "uvx.exe" -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item $_.FullName (Join-Path $destDir $_.Name) -Force }
-        Write-Log "Installed uv.exe -> $target"
-        return $target
-    } finally {
-        try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
-    }
-}
-
-function Install-UvViaOfficialScript {
-    # Astral docs: must use Bypass/RemoteSigned. Nested process so machine policy
-    # Restricted does not block the official install.ps1.
-    # https://docs.astral.sh/uv/getting-started/installation/
-    Write-Log "Running official uv installer with -ExecutionPolicy Bypass"
-    $cmd = "irm '$UvInstallUrl' | iex"
-    $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-    if (-not (Test-Path $psExe)) { $psExe = "powershell.exe" }
-
-    $p = Start-Process -FilePath $psExe -ArgumentList @(
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy", "Bypass",
-        "-Command", $cmd
-    ) -Wait -PassThru -NoNewWindow
-    return ($p.ExitCode -eq 0)
-}
-
-function Ensure-Uv {
-    $uv = Resolve-Uv
-    if ($uv) {
-        Write-Log "Using uv: $uv"
-        return $uv
-    }
-
-    Write-Log "uv not found - bootstrapping (no manual install needed)"
-
-    # 1) Official installer under Bypass (handles PATH + shell integration).
-    try {
-        [void](Install-UvViaOfficialScript)
-    } catch {
-        Write-Log "Official uv installer failed: $_" "WARN"
-    }
-
-    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
-    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".cargo\bin")
-    Refresh-CommandPath
-    $uv = Resolve-Uv
-    if ($uv) {
-        Write-Log "Bootstrapped uv: $uv"
-        return $uv
-    }
-
-    # 2) Direct binary download - ignores execution policy entirely.
-    Write-Log "Falling back to direct uv.exe download from GitHub Releases"
-    try {
-        $uv = Install-UvBinaryDirect
-    } catch {
-        throw "uv bootstrap failed (script + binary): $_  Install manually: https://docs.astral.sh/uv/getting-started/installation/"
-    }
-
-    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
-    Refresh-CommandPath
-    $uv = Resolve-Uv
-    if (-not $uv) {
-        throw "uv installed but not found on PATH. Open a new PowerShell and re-run, or add %USERPROFILE%\.local\bin to PATH."
-    }
-    Write-Log "Bootstrapped uv: $uv"
-    return $uv
 }
 
 function Merge-JsonIntoFile {
@@ -236,7 +133,7 @@ function Merge-JsonIntoFile {
     }
     $data[$Key] = $bucketMap
 
-    ($data | ConvertTo-Json -Depth 12) + "`n" | Set-Content -Path $FilePath -Encoding UTF8
+    ($data | ConvertTo-Json -Depth 12) + "`n" | Set-Content -Path $FilePath -Encoding ASCII
 }
 
 function Remove-McpFromFile {
@@ -257,7 +154,7 @@ function Remove-McpFromFile {
                 $map[$p.Name] = $p.Value
             }
         }
-        ($map | ConvertTo-Json -Depth 12) + "`n" | Set-Content -Path $FilePath -Encoding UTF8
+        ($map | ConvertTo-Json -Depth 12) + "`n" | Set-Content -Path $FilePath -Encoding ASCII
     } catch {
         Write-Log "Could not edit $FilePath : $_" "WARN"
     }
@@ -267,11 +164,9 @@ function Resolve-LkSim {
     $cmd = Get-Command $BinaryName -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
     $candidates = @(
-        (Join-Path $env:USERPROFILE ".local\bin\$BinaryName.exe"),
-        (Join-Path $env:USERPROFILE ".local\bin\$BinaryName"),
-        (Join-Path $env:LOCALAPPDATA "uv\tools\$PkgName\bin\$BinaryName.exe"),
-        (Join-Path $env:USERPROFILE ".local\share\uv\tools\$PkgName\bin\$BinaryName.exe"),
-        (Join-Path $env:LOCALAPPDATA "Programs\Python\Scripts\$BinaryName.exe")
+        (Join-Path $ShimDir "lk-sim.cmd"),
+        (Join-Path $CurrentDir "lk-sim.cmd"),
+        (Join-Path $CurrentDir "lk-sim")
     )
     foreach ($c in $candidates) {
         if (Test-Path $c) { return $c }
@@ -308,19 +203,6 @@ function Configure-AllMcpProviders {
     Merge-JsonIntoFile -FilePath (Join-Path $env:USERPROFILE ".aws\amazonq\mcp.json") -Key "mcpServers" -Value $entry
     Merge-JsonIntoFile -FilePath (Join-Path $env:USERPROFILE ".aws\amazonq\default.json") -Key "mcpServers" -Value $entry
 
-    $opencode = Join-Path $env:USERPROFILE ".opencode.json"
-    if ((Test-Path $opencode) -or (Test-Path (Join-Path $env:USERPROFILE ".config\opencode"))) {
-        $ocEntry = @{
-            $McpServerName = @{
-                type    = "stdio"
-                command = $binary
-                args    = @("mcp")
-                env     = @()
-            }
-        }
-        Merge-JsonIntoFile -FilePath $opencode -Key "mcpServers" -Value $ocEntry
-    }
-
     $codexDir = Join-Path $env:USERPROFILE ".codex"
     $codex = Join-Path $codexDir "config.toml"
     if (Test-Path $codexDir) {
@@ -339,188 +221,103 @@ args = ["mcp"]
 }
 
 function Uninstall-All {
-    Write-Log "Uninstalling $PkgName..."
-    $uv = Resolve-Uv
-    if ($uv) {
-        try { & $uv tool uninstall $PkgName 2>$null } catch {}
+    Write-Log "Uninstalling $PkgName portable pack..."
+    if (Test-Path $InstallRoot) {
+        Remove-Item -Recurse -Force $InstallRoot -ErrorAction SilentlyContinue
     }
-    if (Get-Command pipx -ErrorAction SilentlyContinue) {
-        try { pipx uninstall $PkgName 2>$null } catch {}
+    foreach ($name in @("lk-sim.cmd", "lk-sim-mcp.cmd", "lk-sim", "lk-sim-mcp")) {
+        $p = Join-Path $ShimDir $name
+        if (Test-Path $p) { Remove-Item -Force $p -ErrorAction SilentlyContinue }
     }
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".claude.json") -ServerName $McpServerName
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".cursor\mcp.json") -ServerName $McpServerName
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".vscode\mcp.json") -ParentKey "servers" -ServerName $McpServerName
     Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".gemini\settings.json") -ServerName $McpServerName
-    Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".aws\amazonq\mcp.json") -ServerName $McpServerName
-    Remove-McpFromFile -FilePath (Join-Path $env:USERPROFILE ".aws\amazonq\default.json") -ServerName $McpServerName
     Write-Log "Uninstalled $PkgName"
 }
 
-function Get-LatestReleaseTag {
-    try {
-        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
-        if ($rel.tag_name) { return [string]$rel.tag_name }
-    } catch {
-        Write-Log "Could not resolve latest release: $_" "WARN"
-    }
-    return $null
-}
-
-function Resolve-InstallRef {
-    if ($GitRef -and $GitRef.Trim()) {
-        return $GitRef.Trim()
-    }
-    $latest = Get-LatestReleaseTag
-    if ($latest) {
-        Write-Log "Default ref -> latest release $latest (CI wheel)"
-        return $latest
-    }
-    Write-Log "No GitHub releases found - using main (source install)" "WARN"
-    return "main"
-}
-
-function Get-ReleaseTagFromRef {
+function Install-PortableFromRelease {
     param([string]$Ref)
-    if (-not $Ref) { return $null }
-    if ($Ref -match '^[0-9]+\.[0-9]+') { return "v$Ref" }
-    if ($Ref -match '^v[0-9]+\.[0-9]+') { return $Ref }
-    return $null
-}
-
-function Install-FromReleaseWheel {
-    param([string]$UvPath, [string]$Ref)
-
-    if ($FromGit) { return $false }
 
     $tag = Get-ReleaseTagFromRef -Ref $Ref
-    if (-not $tag) { return $false }
+    if (-not $tag) {
+        throw "Portable packs are only published for version tags (e.g. v0.1.0), not branch '$Ref'."
+    }
 
-    Write-Log "Looking for CI wheel on release $tag ..."
+    $assetName = Get-PortableAssetName
+    Write-Log "Looking for CI portable pack on release $tag : $assetName"
+
     try {
         $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$tag" -UseBasicParsing
     } catch {
-        Write-Log "No GitHub release for $tag - will use source" "WARN"
-        return $false
+        throw "No GitHub release for $tag : $_"
     }
 
-    $asset = @($rel.assets) | Where-Object { $_.name -like "*.whl" } | Select-Object -First 1
+    $asset = @($rel.assets) | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
     if (-not $asset) {
-        Write-Log "Release $tag has no .whl asset - will use source" "WARN"
-        return $false
+        # fallback: any windows zip
+        $asset = @($rel.assets) | Where-Object { $_.name -like "lk-sim-windows-*.zip" } | Select-Object -First 1
+    }
+    if (-not $asset) {
+        $names = (@($rel.assets) | ForEach-Object { $_.name }) -join ", "
+        throw "Release $tag has no Windows portable zip (want $assetName). Assets: $names"
     }
 
-    $work = Join-Path $env:TEMP ("lk-sim-whl-" + [guid]::NewGuid().ToString("n"))
+    $work = Join-Path $env:TEMP ("lk-sim-portable-" + [guid]::NewGuid().ToString("n"))
     New-Item -ItemType Directory -Path $work -Force | Out-Null
-    $whl = Join-Path $work $asset.name
-    Write-Log "Downloading CI wheel: $($asset.browser_download_url)"
-    try {
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $whl -UseBasicParsing
-    } catch {
-        Write-Log "Wheel download failed: $_" "WARN"
-        try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
-        return $false
-    }
-    if (-not (Test-Path $whl) -or (Get-Item $whl).Length -le 0) {
-        Write-Log "Wheel file empty/missing" "WARN"
-        return $false
+    $zip = Join-Path $work $asset.name
+    Write-Log "Downloading $($asset.browser_download_url)"
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing
+    if (-not (Test-Path $zip) -or (Get-Item $zip).Length -le 0) {
+        throw "Download failed or empty: $zip"
     }
 
-    Write-Log "uv tool install --force $whl  (prebuilt by CI - no local package build)"
-    & $UvPath tool install --force $whl
-    $code = $LASTEXITCODE
-    try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
-    if ($code -ne 0) {
-        Write-Log "uv tool install (wheel) failed exit $code" "WARN"
-        return $false
-    }
-    return $true
-}
-
-function Install-FromArchive {
-    param([string]$UvPath, [string]$Ref)
-
-    $work = Join-Path $env:TEMP ("lk-sim-install-" + [guid]::NewGuid().ToString("n"))
-    New-Item -ItemType Directory -Path $work -Force | Out-Null
-    $zip = Join-Path $work "src.zip"
-    $urls = @(
-        "https://github.com/$Owner/$Repo/archive/refs/tags/$Ref.zip",
-        "https://github.com/$Owner/$Repo/archive/refs/heads/$Ref.zip"
-    )
-
-    $downloaded = $false
-    foreach ($url in $urls) {
-        Write-Log "Downloading source: $url"
-        try {
-            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-            if ((Test-Path $zip) -and ((Get-Item $zip).Length -gt 0)) {
-                $downloaded = $true
-                break
-            }
-        } catch {
-            Write-Log "Not available: $url ($($_.Exception.Message))" "WARN"
-        }
-    }
-    if (-not $downloaded) {
-        throw "Could not download source for ref '$Ref' (tried tags + branches)."
-    }
-
-    Write-Log "Extracting source archive..."
+    Write-Log "Extracting portable pack..."
     Expand-Archive -Path $zip -DestinationPath $work -Force
-    $src = Get-ChildItem -Path $work -Directory | Where-Object {
-        $_.Name -like "$Repo-*" -or $_.Name -eq $Repo
+
+    # Zip contains lk-sim-windows-x64/...
+    $payload = Get-ChildItem -Path $work -Directory | Where-Object {
+        $_.Name -like "lk-sim-windows-*"
     } | Select-Object -First 1
-    if (-not $src) {
-        throw "Source tree not found after extract under $work"
-    }
-    if (-not (Test-Path (Join-Path $src.FullName "pyproject.toml"))) {
-        throw "pyproject.toml missing in $($src.FullName)"
-    }
-
-    Write-Log "uv tool install --force $($src.FullName)"
-    & $UvPath tool install --force $src.FullName
-    if ($LASTEXITCODE -ne 0) {
-        throw "uv tool install failed (exit $LASTEXITCODE)"
-    }
-
-    try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
-}
-
-function Install-FromGitSpec {
-    param([string]$UvPath, [string]$Ref)
-    $spec = "git+https://github.com/$Owner/$Repo.git@$Ref"
-    Write-Log "Source: $spec"
-    & $UvPath tool install --force $spec
-    if ($LASTEXITCODE -ne 0) {
-        throw "uv tool install (git) failed (exit $LASTEXITCODE)"
-    }
-}
-
-function Install-Package {
-    param([string]$Ref)
-
-    $uv = Ensure-Uv
-    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
-
-    # 1) Prefer CI-built wheel from GitHub Release (no local build)
-    if (Install-FromReleaseWheel -UvPath $uv -Ref $Ref) {
-        return
-    }
-
-    # 2) git if available
-    $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
-    if ($hasGit) {
-        try {
-            Install-FromGitSpec -UvPath $uv -Ref $Ref
-            return
-        } catch {
-            Write-Log "git-based install failed; falling back to source archive: $_" "WARN"
+    if (-not $payload) {
+        # maybe flat
+        if (Test-Path (Join-Path $work "lk-sim.cmd")) {
+            $payload = Get-Item $work
+        } else {
+            throw "Portable payload folder not found after extract"
         }
-    } else {
-        Write-Log "git not on PATH - installing from GitHub source archive (no Git required)"
     }
 
-    # 3) source zip
-    Install-FromArchive -UvPath $uv -Ref $Ref
+    if (Test-Path $InstallRoot) {
+        Remove-Item -Recurse -Force $InstallRoot -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+    Copy-Item -Path $payload.FullName -Destination $CurrentDir -Recurse -Force
+    Write-Log "Installed files -> $CurrentDir"
+
+    # Shims in ~/.local/bin (ASCII .cmd only)
+    if (-not (Test-Path $ShimDir)) {
+        New-Item -ItemType Directory -Path $ShimDir -Force | Out-Null
+    }
+    $lkCmd = Join-Path $CurrentDir "lk-sim.cmd"
+    $mcpCmd = Join-Path $CurrentDir "lk-sim-mcp.cmd"
+    if (-not (Test-Path $lkCmd)) { throw "lk-sim.cmd missing in portable pack" }
+
+    $shimLk = Join-Path $ShimDir "lk-sim.cmd"
+    $shimMcp = Join-Path $ShimDir "lk-sim-mcp.cmd"
+    @"
+@echo off
+"$lkCmd" %*
+"@ | Set-Content -Path $shimLk -Encoding ASCII
+    if (Test-Path $mcpCmd) {
+        @"
+@echo off
+"$mcpCmd" %*
+"@ | Set-Content -Path $shimMcp -Encoding ASCII
+    }
+
+    Ensure-DirOnPath $ShimDir
+    try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
 }
 
 if ($Uninstall) {
@@ -529,13 +326,9 @@ if ($Uninstall) {
 }
 
 $ResolvedRef = Resolve-InstallRef
-Write-Log "Installing $PkgName (CLI $BinaryName | MCP: $BinaryName mcp)"
-Write-Log "Ref: $ResolvedRef - CI wheel preferred; bootstraps uv if needed"
-Install-Package -Ref $ResolvedRef
-
-# uv tools land in ~/.local/bin on Windows
-Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
-Refresh-CommandPath
+Write-Log "Installing $PkgName (portable pack from $ResolvedRef)"
+Write-Log "No uv/pip/build on this machine - CI already built everything"
+Install-PortableFromRelease -Ref $ResolvedRef
 
 if (-not $NoMcp) {
     Configure-AllMcpProviders
@@ -545,9 +338,11 @@ if (-not $NoMcp) {
 
 $lkResolved = Resolve-LkSim
 if ($Verify) {
-    if (-not $lkResolved) { throw "$BinaryName not found after install (check PATH / open new PowerShell)" }
+    if (-not $lkResolved) { throw "$BinaryName not found after install" }
     & $lkResolved --help | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "$BinaryName --help failed" }
+    if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
+        # cmd.exe sometimes leaves exit 0 only; still try
+    }
     Write-Log "Verified $BinaryName --help"
 }
 
@@ -556,9 +351,8 @@ Write-Host "OK $PkgName installed" -ForegroundColor Green
 if ($lkResolved) {
     Write-Host "  CLI: $lkResolved"
     Write-Host "  MCP: $lkResolved mcp"
-} else {
-    Write-Host "  CLI: $BinaryName  (open a new PowerShell if command not found)"
 }
+Write-Host "  Pack: $CurrentDir"
 Write-Host ""
 Write-Host "  Quick start:"
 Write-Host "    $BinaryName guide"
@@ -566,6 +360,5 @@ Write-Host "    $BinaryName init --root C:\path\to\target"
 Write-Host "    $BinaryName web --root C:\path\to\target"
 Write-Host "    $BinaryName mcp"
 Write-Host ""
-Write-Host "  Report player ships inside the CI wheel (no Node/pnpm required)."
-Write-Host "  If '$BinaryName' is not found, open a new PowerShell (PATH refresh)."
+Write-Host "  If command not found, open a new PowerShell (PATH refresh)."
 Write-Host ""

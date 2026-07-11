@@ -9,138 +9,179 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build + Test + GitHub Release
+  wheel:
+    name: Test + wheel
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Build report player (bundled into wheel)
+      - name: Build report player
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
           test -f ../templates/report-player/index.html
-          test -d ../templates/report-player/assets
-          ls -la ../templates/report-player/assets/
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install 3.12
+      - name: Python + tests
+        run: |
+          uv python install 3.12
+          uv sync --frozen --extra dev
+          uv run pytest -q
+          uv run lk-sim --help
 
-      - name: Sync dependencies
-        run: uv sync --frozen --extra dev
-
-      - name: Run tests
-        run: uv run pytest -q
-
-      - name: CLI smoke
-        run: uv run lk-sim --help
-
-      - name: Build wheel (CI artifact for installers)
+      - name: Build wheel
         run: |
           rm -rf dist
           uv build --wheel
           ls -la dist/
           uv run python - <<'PY'
-          import sys, zipfile
+          import zipfile
           from pathlib import Path
-
-          wheels = list(Path("dist").glob("*.whl"))
-          assert len(wheels) == 1, wheels
-          whl = wheels[0]
+          whl = next(Path("dist").glob("*.whl"))
           with zipfile.ZipFile(whl) as z:
               names = z.namelist()
-          player = [n for n in names if "report-player/index.html" in n]
-          assert player, "wheel missing report-player/index.html"
-          print(f"wheel={whl.name} entries={len(names)} player={player[0]}")
+          assert any("report-player/index.html" in n for n in names), names[:30]
+          print("wheel ok", whl)
           PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
+  portable:
+    name: Portable (${{ matrix.asset }})
+    needs: wheel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: windows-x64
+          - os: ubuntu-latest
+            asset: linux-x64
+          - os: macos-latest
+            asset: macos-arm64
+          - os: macos-13
+            asset: macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+
+      - name: Build portable pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv python install 3.12
+          WHL=$(ls dist/*.whl | head -1)
+          echo "wheel=$WHL"
+          uv run --no-project python scripts/build_portable.py --wheel "$WHL" --out-dir dist/portable
+          ls -la dist/portable/
+          # Expect zip named by host arch; rename to matrix.asset for stable release names
+          ZIP=$(ls dist/portable/lk-sim-*.zip | head -1)
+          DEST="dist/portable/lk-sim-${{ matrix.asset }}.zip"
+          if [ "$(basename "$ZIP")" != "$(basename "$DEST")" ]; then
+            cp "$ZIP" "$DEST"
+          fi
+          ls -la "$DEST"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable-${{ matrix.asset }}
+          path: dist/portable/lk-sim-${{ matrix.asset }}.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: [wheel, portable]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Stage release files
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp install.sh install.ps1 release-assets/
+          # wheel
+          find artifacts -name '*.whl' -exec cp {} release-assets/ \;
+          # portable zips
+          find artifacts -name 'lk-sim-*.zip' -exec cp {} release-assets/ \;
+          ls -la release-assets/
+          test -f release-assets/install.ps1
+          test -f release-assets/lk-sim-windows-x64.zip
+          test -f release-assets/lk-sim-linux-x64.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            install.sh
-            install.ps1
-            dist/*.whl
+          files: release-assets/*
           body: |
-            ## Install
+            ## Install (user machine = download only)
 
-            CI builds a **prebuilt wheel** (report player included). Installers download that
-            artifact from this release — you do **not** build from source on the user machine.
-            Still **no PyPI**; distribution is GitHub Releases only.
-
-            ### macOS / Linux
-
-            ```bash
-            # pin to this release (downloads CI wheel)
-            curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref ${{ github.ref_name }} --verify
-
-            # default = latest release wheel when available
-            curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
-            ```
+            CI ships **portable packs** (embedded Python + deps + report player).
+            Installers **do not** run uv/pip/build on your machine.
 
             ### Windows PowerShell
 
             ```powershell
-            # default = latest release wheel
-            irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
-
-            # pin tag
-            irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
-            .\install.ps1 -GitRef ${{ github.ref_name }} -Verify
+            irm "https://github.com/quangdang46/livekit-agent-simulator/releases/download/${{ github.ref_name }}/install.ps1" -OutFile "$env:TEMP\lk-sim-install.ps1"
+            powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\lk-sim-install.ps1" -Verify
             ```
 
-            ### Direct (prebuilt wheel)
-
-            Download the `.whl` from **Assets** below (pure `py3-none-any`), then:
+            ### macOS / Linux
 
             ```bash
-            uv tool install --force ./livekit_agent_simulator-*.whl
+            curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/${{ github.ref_name }}/install.sh" | bash -s -- --verify
             ```
 
-            Report player is inside the wheel — no Node on the user machine.
+            ### Assets
 
-      - name: Release summary
+            | Asset | Who |
+            |-------|-----|
+            | `lk-sim-windows-x64.zip` | Windows |
+            | `lk-sim-linux-x64.zip` | Linux |
+            | `lk-sim-macos-arm64.zip` | Apple Silicon |
+            | `lk-sim-macos-x64.zip` | Intel Mac |
+            | `install.ps1` / `install.sh` | one-shot installers |
+            | `*.whl` | optional (devs / uv tool) |
+
+      - name: Summary
         if: always()
         run: |
           {
-            echo "## Release"
-            echo ""
-            echo "Tag: \`${GITHUB_REF_NAME}\`"
-            echo ""
-            echo "### Pipeline"
-            echo "- pnpm web build → templates/report-player/"
-            echo "- pytest + lk-sim --help"
-            echo "- **uv build --wheel** (assert report-player inside)"
-            echo "- GitHub Release: install.sh + install.ps1 + dist/*.whl"
-            echo "- **No** PyPI publish"
-            echo ""
-            echo "### Install"
-            echo "\`\`\`bash"
-            echo "curl -fsSL \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?\$(date +%s)\" | bash -s -- --ref ${GITHUB_REF_NAME} --verify"
-            echo "\`\`\`"
-            echo ""
-            echo "\`\`\`powershell"
-            echo "irm \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1\" | iex"
-            echo "\`\`\`"
+            echo "## Release ${GITHUB_REF_NAME}"
+            echo "- wheel + portable packs (windows/linux/macos)"
+            echo "- installers download pack only (no user-side uv/build)"
+            ls -la release-assets/ || true
           } >> "$GITHUB_STEP_SUMMARY"
