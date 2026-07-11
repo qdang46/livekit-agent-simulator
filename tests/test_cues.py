@@ -229,10 +229,17 @@ def test_build_markers_barge_silence_recovery(tmp_path: Path) -> None:
     # Window pinned to inject (marker ~3200), not only STT final (~3600)
     assert barge_speech["start_ms"] <= 3200
     assert barge_speech["end_ms"] >= 3600
+    # At least one script_barge card (STT-classified and/or synthetic from marker)
+    script_cards = [
+        c for c in payload["cues"] if c.get("speech_origin") == "script_barge"
+    ]
+    assert script_cards
     natural = next(
         c
         for c in payload["cues"]
-        if c.get("role") == "user" and "support" in (c.get("text") or "")
+        if c.get("role") == "user"
+        and "support" in (c.get("text") or "")
+        and c.get("speech_origin", "natural") == "natural"
     )
     assert natural.get("speech_origin", "natural") == "natural"
 

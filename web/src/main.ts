@@ -113,7 +113,7 @@ function roleLabel(role: string, origin?: string | null): string {
   const r = role.toLowerCase();
   if (r === "agent") return "Agent";
   if (r === "user") {
-    if (origin === "script_barge") return "Script barge";
+    if (origin === "script_barge") return "Script inject";
     if (origin === "script_cue") return "Script cue";
     return "Caller";
   }
@@ -151,7 +151,7 @@ function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
             <div class="role-key" aria-label="Speaker legend">
               <span class="role-key-item"><span class="role-dot agent"></span> Agent</span>
               <span class="role-key-item"><span class="role-dot user"></span> Caller (persona)</span>
-              <span class="role-key-item"><span class="role-dot script-barge"></span> Script barge (inject)</span>
+              <span class="role-key-item"><span class="role-dot script-barge"></span> Script inject (NOT caller)</span>
             </div>
             <button type="button" class="follow-btn on" id="follow" title="When on, transcript keeps the current line in view. Scroll freely turns this off.">
               Follow live
@@ -437,10 +437,29 @@ function mountTimelineList(
       const r = (c.role || "other").toLowerCase();
       const origin = c.speech_origin || "natural";
       const col = roleClass(r, origin);
+      const isScriptInject =
+        origin === "script_barge" || origin === "script_cue";
       li.className = `cue-row ${col}`;
       li.dataset.role = r;
       li.dataset.origin = origin;
-      li.innerHTML = `
+      li.innerHTML = isScriptInject
+        ? `
+        <div class="cue-card ${col} inject-card">
+          <div class="script-banner" aria-hidden="true">
+            <span class="script-banner-icon">⚡</span>
+            <span class="script-banner-title">SCRIPT INJECT</span>
+            <span class="script-banner-sub">not Caller · mid-agent cut-in</span>
+          </div>
+          <div class="cue-meta">
+            <span class="role origin-${origin}"></span>
+            <span class="time"></span>
+            <span class="tags"></span>
+          </div>
+          <div class="cue-text"></div>
+          <div class="cue-detail script-origin"></div>
+        </div>
+      `
+        : `
         <div class="cue-card ${col}">
           <div class="cue-meta">
             <span class="role ${r} origin-${origin}"></span>
@@ -457,17 +476,29 @@ function mountTimelineList(
       const tags = li.querySelector(".tags");
       const detail = li.querySelector(".cue-detail.script-origin");
       if (role) role.textContent = roleLabel(c.role, origin);
-      if (time) time.textContent = `${fmtMs(c.start_ms)} – ${fmtMs(c.end_ms)}`;
+      if (time) {
+        time.textContent = isScriptInject
+          ? `inject ${fmtMs(c.inject_ms ?? c.start_ms)} · ${fmtMs(c.start_ms)}–${fmtMs(c.end_ms)}`
+          : `${fmtMs(c.start_ms)} – ${fmtMs(c.end_ms)}`;
+      }
       if (text) text.textContent = c.text;
       if (tags) {
-        if (origin === "script_barge" || origin === "script_cue") {
+        if (isScriptInject) {
           const badge = document.createElement("span");
-          badge.className = `tag ${origin === "script_barge" ? "script_barge" : "script_cue"}`;
-          badge.textContent = origin === "script_barge" ? "script inject" : "script";
+          badge.className = "tag script_barge";
+          badge.textContent =
+            origin === "script_barge" ? "barge_in" : "script";
           tags.appendChild(badge);
+          if (c.synthetic) {
+            const syn = document.createElement("span");
+            syn.className = "tag script_barge";
+            syn.textContent = "from Script";
+            tags.appendChild(syn);
+          }
         }
         if (c.marker_tags?.length) {
           for (const t of c.marker_tags) {
+            if (isScriptInject && t === "barge_in") continue;
             const span = document.createElement("span");
             span.className = `tag ${t}`;
             span.textContent = markerTitle(t);
@@ -475,14 +506,16 @@ function mountTimelineList(
           }
         }
       }
-      if (detail && (origin === "script_barge" || origin === "script_cue")) {
-        const bits = [
-          c.script_step_id ? `step ${c.script_step_id}` : null,
-          c.script_say ? `script: “${c.script_say}”` : null,
-          "not natural caller speech — Script barge/inject",
-        ].filter(Boolean);
-        detail.textContent = bits.join(" · ");
-        detail.classList.remove("hidden");
+      if (detail && isScriptInject) {
+        detail.textContent = [
+          c.script_step_id ? `step: ${c.script_step_id}` : null,
+          c.script_say && c.script_say !== c.text
+            ? `script say: “${c.script_say}”`
+            : null,
+          "Do not treat as persona Caller turn",
+        ]
+          .filter(Boolean)
+          .join(" · ");
       }
     }
 

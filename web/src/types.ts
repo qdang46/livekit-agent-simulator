@@ -36,6 +36,9 @@ export type Cue = {
   script_step_id?: string;
   script_say?: string;
   script_label?: string;
+  inject_ms?: number;
+  /** True when card built from Script cue/inject (not STT). */
+  synthetic?: boolean;
 };
 
 export type Marker = {
