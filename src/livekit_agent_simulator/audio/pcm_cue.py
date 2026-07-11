@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import struct
 import wave
 from pathlib import Path
 
@@ -23,14 +22,28 @@ def load_wav_pcm(path: Path) -> tuple[bytes, int, int]:
     return pcm, rate, channels
 
 
-def resolve_cue_asset(asset: str, *, scenario_dir: Path | None, package_root: Path) -> Path:
+def resolve_cue_asset(
+    asset: str,
+    *,
+    scenario_dir: Path | None,
+    package_root: Path | None = None,
+    templates_dir: Path | None = None,
+) -> Path:
+    """Resolve a WAV cue: absolute path → scenario dir → package templates/cues."""
     raw = Path(asset)
     if raw.is_absolute():
         path = raw
     elif scenario_dir is not None and (scenario_dir / raw).exists():
         path = scenario_dir / raw
     else:
-        path = package_root / "templates" / "cues" / raw
+        if templates_dir is None:
+            if package_root is not None:
+                templates_dir = package_root / "templates"
+            else:
+                from ..paths import package_templates_dir
+
+                templates_dir = package_templates_dir()
+        path = templates_dir / "cues" / raw
     if not path.exists():
         raise FileNotFoundError(f"Cue asset not found: {asset} (resolved {path})")
     return path

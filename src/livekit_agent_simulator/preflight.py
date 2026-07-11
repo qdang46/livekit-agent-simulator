@@ -47,8 +47,9 @@ async def run_preflight(project_root: Path | str, connectivity: bool = True) -> 
     cfg.scenarios_dir.mkdir(parents=True, exist_ok=True)
     result.add("folders", "pass", str(cfg.dot_dir))
 
-    if not cfg.simulator.google_api_key.startswith("AI"):
-        result.add("simulator.google_api_key", "warn", "Key does not look like a Google API key (expected `AIza...`)")
+    key = cfg.simulator.google_api_key.strip()
+    if len(key) < 20:
+        result.add("simulator.google_api_key", "warn", "Key looks unusually short")
     else:
         result.add("simulator.google_api_key", "pass", "present")
 

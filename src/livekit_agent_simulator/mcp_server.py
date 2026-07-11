@@ -1,4 +1,4 @@
-"""FastMCP server — exposes the 9 project operations as MCP tools.
+"""FastMCP server — project operations as MCP tools.
 
 Every tool takes `project_root`: the absolute path of the repo under test that
 contains (or will contain) the `.agent-sim/` folder.

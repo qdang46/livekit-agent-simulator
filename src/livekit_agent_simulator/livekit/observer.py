@@ -7,7 +7,7 @@ Sources:
     L2  tool patterns      config-driven match rules over data-topic JSON payloads
 
 Attribute keys per LiveKit docs (agents/multimodality/text):
-    lk.transcription_final, lk.transcribed_track_id, lk.segment_id
+    lk.transcription_final, lk.segment_id
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from ..config import ObserveConfig, ToolEventPattern
 from ..logging.event_writer import EventWriter
 
 ATTR_FINAL = "lk.transcription_final"
-ATTR_TRACK_ID = "lk.transcribed_track_id"
 ATTR_SEGMENT_ID = "lk.segment_id"
 
 # Lower index = higher priority when deduping finals from multiple sources.

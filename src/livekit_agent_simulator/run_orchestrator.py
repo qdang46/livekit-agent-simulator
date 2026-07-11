@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from .audio.local_recorder import DEFAULT_FILENAME, LocalConversationRecorder
 from .caller_nudge import nudge_caller_after_agent_greeting
 from .config import SimConfig, config_snapshot
 from .gemini.judge import judge_run
@@ -81,6 +82,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
     status = "failed"
     verdict: dict[str, Any] | None = None
     summary: dict[str, Any] = {}
+    recorder: LocalConversationRecorder | None = None
 
     async with LiveKitAdapter(cfg) as adapter:
         writer.emit(
@@ -133,6 +135,9 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             )
             observer.attach()
 
+            if cfg.observe.audio_recording_enabled:
+                recorder = LocalConversationRecorder()
+
             bridge = GeminiCallerBridge(
                 cfg,
                 room,
@@ -140,6 +145,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 writer,
                 persona_system_prompt=scenario.persona_system_prompt(),
                 first_speaker=run.first_speaker,
+                recorder=recorder,
             )
             bridge.watch_agent_tracks(agent_identity)
 
@@ -195,6 +201,43 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             )
             status = "failed"
         finally:
+            if recorder is not None:
+                try:
+                    audio_path = report_dir / DEFAULT_FILENAME
+                    result = recorder.finalize(audio_path)
+                    if result is not None:
+                        audio_meta = {
+                            "path": str(result.path),
+                            "sample_rate": result.sample_rate,
+                            "duration_ms": result.duration_ms,
+                            "channels": {"left": "sim", "right": "agent"},
+                            "sim_samples": result.sim_samples,
+                            "agent_samples": result.agent_samples,
+                        }
+                        meta["audio"] = audio_meta
+                        writer.emit(
+                            "sim.audio_recorded",
+                            spec=audio_meta,
+                            source="sim",
+                            include_dialogue=False,
+                        )
+                    else:
+                        writer.emit(
+                            "sim.audio_recorded",
+                            spec={"path": None, "note": "no audio frames captured"},
+                            source="sim",
+                            include_dialogue=False,
+                        )
+                except Exception as e:
+                    writer.emit(
+                        "sim.error",
+                        spec={
+                            "where": "audio_finalize",
+                            "error": f"{type(e).__name__}: {e}",
+                        },
+                        source="sim",
+                        include_dialogue=False,
+                    )
             if meta.get("room_name"):
                 await adapter.delete_room(meta["room_name"])
 

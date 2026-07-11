@@ -77,7 +77,7 @@ from livekit_agent_simulator import ops, scenario_from_dict
 
 async def main():
     result = await ops.run_scenario_dict(
-        "/path/to/voice-ai-worker",
+        "/path/to/target-agent-repo",
         {
             "id": "dynamic-backchannel",
             "persona": {"brief": "Listener", "goals": ["listen"]},

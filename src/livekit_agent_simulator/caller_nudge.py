@@ -10,8 +10,9 @@ if TYPE_CHECKING:
     from .livekit.observer import Observer
     from .logging.event_writer import EventWriter
 
+# Language-neutral: persona / scenario locale already constrain speech language.
 AGENT_GREETED_NUDGE = (
-    "(The agent has finished greeting you. Respond now in Japanese per your persona.)"
+    "(The agent has finished greeting you. Respond now in the language of your persona.)"
 )
 
 

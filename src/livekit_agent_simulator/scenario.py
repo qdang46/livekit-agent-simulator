@@ -3,15 +3,15 @@
 A scenario file is line-delimited JSON. Line 1 is the header; every following line is
 a section keyed by `kind`:
 
-    {"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"smoke-hello","locale":"ja-JP","tags":["smoke"]}}
-    {"kind":"Persona","spec":{"name":"Tanaka","brief":"...","goals":["..."],"style":"..."}}
+    {"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"smoke-hello","locale":"en-US","tags":["smoke"]}}
+    {"kind":"Persona","spec":{"name":"Alex","brief":"...","goals":["..."],"style":"..."}}
     {"kind":"Context","spec":{"notes":"..."}}
     {"kind":"Simulator","spec":{"max_turns":6,"timeout_s":120,"first_speaker":"agent"}}
     {"kind":"Execute","spec":{"max_turns":2,"timeout_s":90,"first_speaker":"user"}}
     {"kind":"Dispatch","spec":{"metadata":"{\"yourProjectKey\":\"value\"}"}}
     {"kind":"PassCriteria","spec":{"criteria":["agent greets the caller politely"]}}
     {"kind":"Script","spec":{"steps":[...],"verify":{...}}}
-    {"kind":"Script","spec":{"steps":[{"id":"backchannel","trigger":"agent_speaking","delay_ms":800,"say":"うん","label":"backchannel-during-agent"}],"verify":{"require_during_agent_speech":true,"min_agent_finals_after_first_cue":1}}}
+    {"kind":"Script","spec":{"steps":[{"id":"backchannel","trigger":"agent_speaking","delay_ms":800,"say":"uh-huh","label":"backchannel-during-agent"}],"verify":{"require_during_agent_speech":true,"min_agent_finals_after_first_cue":1}}}
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class DispatchSpec:
 class Scenario:
     id: str
     path: Path
-    locale: str = "ja-JP"
+    locale: str = "en-US"
     tags: list[str] = field(default_factory=list)
     persona: dict[str, Any] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
@@ -206,7 +206,7 @@ def parse_scenario(path: Path | str) -> Scenario:
     scenario = Scenario(
         id=str(scenario_id),
         path=path,
-        locale=str(metadata.get("locale", "ja-JP")),
+        locale=str(metadata.get("locale", "en-US")),
         tags=[str(t) for t in metadata.get("tags", [])],
     )
 

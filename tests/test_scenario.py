@@ -39,12 +39,12 @@ def test_execute_overrides_simulator(tmp_path):
 def test_dispatch_metadata_json(tmp_path):
     content = (
         VALID.replace('"agent greets the caller"', '"ok"')
-        + '\n{"kind":"Dispatch","spec":{"metadata":"{\\"customAgentId\\":\\"abc\\"}"}}\n'
+        + '\n{"kind":"Dispatch","spec":{"metadata":"{\\"yourProjectKey\\":\\"abc\\"}"}}\n'
     )
     f = tmp_path / "dispatch.jsonl"
     f.write_text(content, encoding="utf-8")
     s = parse_scenario(f)
-    assert s.dispatch_metadata("default") == '{"customAgentId":"abc"}'
+    assert s.dispatch_metadata("default") == '{"yourProjectKey":"abc"}'
     assert s.export_dict()["dispatch"]["metadata_set"] is True
 
 

@@ -23,6 +23,31 @@ for package bugs or features.
 
 ---
 
+## Product rule: generic core, not fit-to-one-repo
+
+This package ships **tools + core capabilities** that every LiveKit agent repo can use.
+It is **not** a glue layer for one consumer (worker, dashboard, language, brand).
+
+| Do | Do not |
+|---|---|
+| Build features every target can enable via config / scenario / plugins | Hardcode language, timezone, agent IDs, data topics, or business strings in `src/` |
+| Give **extension points** (opaque dispatch, `observe.*`, Script, verify plugins) so users customize | Parse or special-case consumer keys in core Python |
+| Put project-specific wiring only in **that target’s** `.agent-sim/` | Change package defaults to match the last repo we smoked |
+| Prefer one clear API (`record_audio`, not aliases) | Keep “legacy” flags, dual names, or compatibility shims “just in case” |
+
+**Customization belongs to the user.** We ship knobs and contracts; the target fills
+`config.yaml`, scenarios, plugins. If something only works for one monorepo, it is
+wrong for core — fix the design or keep it out of `src/`.
+
+**Dev-stage cleanliness (repo is still evolving):**
+
+- No legacy paths. Delete dead config, unused fields, and half-features in the same change.
+- Defaults must be **portable** (`en-US` / `UTC` in core; demos may override in templates or target config).
+- Docs/examples use neutral placeholders (`yourProjectKey`, `/path/to/target-repo`) — not a real product name as the default.
+- Prefer fail-fast or remove over silent multi-provider stubs that only implement one backend.
+
+---
+
 ## Research before implement or fix (mandatory)
 
 Do **not** guess SDK wire formats, Gemini Live quirks, or LiveKit dispatch behavior.
@@ -112,6 +137,8 @@ Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] 
 - No target-repo application code changes unless explicitly requested.
 - No consumer env vars in `pyproject.toml` or core config schema.
 - Credentials only in target `.agent-sim/config.yaml` (gitignored).
+- Core stays **repo-agnostic**; consumer fit only under target `.agent-sim/` (or docs examples).
+- No legacy shims / dual config names — clean breaks are fine while pre-1.0.
 - **pytest must pass** before reporting done.
 
 ---

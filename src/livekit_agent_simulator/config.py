@@ -15,6 +15,12 @@ import yaml
 DOT_FOLDER = ".agent-sim"
 CONFIG_FILENAME = "config.yaml"
 
+# Portable defaults — demos may override in target config / templates.
+DEFAULT_LANGUAGE = "en-US"
+DEFAULT_TIMEZONE = "UTC"
+DEFAULT_VOICE_MODEL = "gemini-3.1-flash-live-preview"
+DEFAULT_JUDGE_MODEL = "gemini-2.5-flash"
+
 
 class ConfigError(Exception):
     """Raised when config.yaml is missing or invalid. Message is user-actionable."""
@@ -33,27 +39,23 @@ class LiveKitConfig:
 
 @dataclass
 class SimulatorVoiceConfig:
-    mode: str = "realtime"
-    provider: str = "google"
-    model: str = "gemini-3.1-flash-live-preview"
+    """Gemini Live voice for the simulated caller."""
+
+    model: str = DEFAULT_VOICE_MODEL
     voice: str = "Puck"
-    language: str = "ja-JP"
+    language: str = DEFAULT_LANGUAGE
 
 
 @dataclass
 class SimulatorConfig:
     google_api_key: str
-    provider: str = "google"
-    model: str = "gemini-2.5-flash"
-    temperature: float = 0.7
-    language: str = "ja-JP"
+    language: str = DEFAULT_LANGUAGE
     voice: SimulatorVoiceConfig = field(default_factory=SimulatorVoiceConfig)
 
 
 @dataclass
 class JudgeConfig:
-    provider: str = "google"
-    model: str = "gemini-2.5-flash"
+    model: str = DEFAULT_JUDGE_MODEL
     temperature: float = 0.0
 
 
@@ -65,17 +67,22 @@ class ToolEventPattern:
 
 @dataclass
 class ObserveConfig:
-    timezone: str = "Asia/Ho_Chi_Minh"
+    timezone: str = DEFAULT_TIMEZONE
     lk_transcription: bool = True
-    save_audio_segments: bool = False
-    export_turn_snapshots: bool = False
+    # Local-first stereo WAV under reports/<run-id>/conversation.wav (no Egress).
+    # L = sim caller, R = agent.
+    record_audio: bool = False
     data_topics: list[str] = field(default_factory=list)
     tool_event_patterns: list[ToolEventPattern] = field(default_factory=list)
-    # Payload `type` values treated as transcript turns on any subscribed data topic.
+    # Sim wire format: payload `type` values treated as transcript turns on data topics.
     transcript_payload_types: list[str] = field(default_factory=lambda: ["transcript_turn"])
     transcript_dedupe_window_ms: int = 15_000
     silence_threshold_ms: int = 4_000
     turn_taking_warn_ms: int = 2_500
+
+    @property
+    def audio_recording_enabled(self) -> bool:
+        return bool(self.record_audio)
 
 
 @dataclass
@@ -151,19 +158,15 @@ def load_config(project_root: Path | str) -> SimConfig:
     if not isinstance(sim_raw, dict):
         raise ConfigError(f"Missing `simulator:` section in {config_path}.")
     voice_raw = sim_raw.get("voice") or {}
+    default_lang = str(sim_raw.get("language", DEFAULT_LANGUAGE))
     voice = SimulatorVoiceConfig(
-        mode=str(voice_raw.get("mode", "realtime")),
-        provider=str(voice_raw.get("provider", "google")),
-        model=str(voice_raw.get("model", "gemini-3.1-flash-live-preview")),
+        model=str(voice_raw.get("model", DEFAULT_VOICE_MODEL)),
         voice=str(voice_raw.get("voice", "Puck")),
-        language=str(voice_raw.get("language", sim_raw.get("language", "ja-JP"))),
+        language=str(voice_raw.get("language", default_lang)),
     )
     simulator = SimulatorConfig(
         google_api_key=str(_require(sim_raw, "google_api_key", "simulator")),
-        provider=str(sim_raw.get("provider", "google")),
-        model=str(sim_raw.get("model", "gemini-2.5-flash")),
-        temperature=float(sim_raw.get("temperature", 0.7)),
-        language=str(sim_raw.get("language", "ja-JP")),
+        language=default_lang,
         voice=voice,
     )
 
@@ -171,8 +174,7 @@ def load_config(project_root: Path | str) -> SimConfig:
     judge_raw = raw.get("judge")
     if isinstance(judge_raw, dict):
         judge = JudgeConfig(
-            provider=str(judge_raw.get("provider", "google")),
-            model=str(judge_raw.get("model", "gemini-2.5-flash")),
+            model=str(judge_raw.get("model", DEFAULT_JUDGE_MODEL)),
             temperature=float(judge_raw.get("temperature", 0.0)),
         )
 
@@ -181,11 +183,11 @@ def load_config(project_root: Path | str) -> SimConfig:
     for p in obs_raw.get("tool_event_patterns") or []:
         if isinstance(p, dict) and isinstance(p.get("match"), dict) and p.get("emit"):
             patterns.append(ToolEventPattern(match=p["match"], emit=str(p["emit"])))
+
     observe = ObserveConfig(
-        timezone=str(obs_raw.get("timezone", "Asia/Ho_Chi_Minh")),
+        timezone=str(obs_raw.get("timezone", DEFAULT_TIMEZONE)),
         lk_transcription=bool(obs_raw.get("lk_transcription", True)),
-        save_audio_segments=bool(obs_raw.get("save_audio_segments", False)),
-        export_turn_snapshots=bool(obs_raw.get("export_turn_snapshots", False)),
+        record_audio=bool(obs_raw.get("record_audio", False)),
         data_topics=[str(t) for t in (obs_raw.get("data_topics") or [])],
         tool_event_patterns=patterns,
         transcript_payload_types=[
@@ -227,6 +229,7 @@ def config_snapshot(cfg: SimConfig) -> dict[str, Any]:
         "judge_enabled": cfg.judge is not None,
         "observe": {
             "lk_transcription": cfg.observe.lk_transcription,
+            "record_audio": cfg.observe.audio_recording_enabled,
             "data_topics": cfg.observe.data_topics,
             "silence_threshold_ms": cfg.observe.silence_threshold_ms,
         },

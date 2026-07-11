@@ -1,4 +1,4 @@
-"""Shared implementation of the 9 project operations — used by both MCP tools and CLI."""
+"""Shared implementation of project operations — used by both MCP tools and CLI."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import DOT_FOLDER, ConfigError, load_config
 from .logging.sqlite_store import RunStore
+from .paths import package_templates_dir
 from .scenario import ScenarioError, find_scenario, list_scenarios as _list_scenarios, parse_scenario
 from .scenario_from_dict import export_scenario_dict, scenario_from_dict
 from . import run_orchestrator
@@ -16,12 +17,11 @@ from .preflight import run_preflight
 from .plugins.loader import ensure_plugins_loaded
 from .plugins.registry import list_verify_plugins
 
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
-
 
 def init_project(project_root: Path | str) -> dict[str, Any]:
     """Scaffold .agent-sim/ with config.yaml template + smoke scenario; gitignore it."""
     root = Path(project_root).resolve()
+    templates = package_templates_dir()
     dot = root / DOT_FOLDER
     created: list[str] = []
 
@@ -31,17 +31,17 @@ def init_project(project_root: Path | str) -> dict[str, Any]:
 
     config_dst = dot / "config.yaml"
     if not config_dst.exists():
-        shutil.copyfile(TEMPLATES_DIR / "config.yaml", config_dst)
+        shutil.copyfile(templates / "config.yaml", config_dst)
         created.append(str(config_dst))
 
     smoke_dst = dot / "scenarios" / "smoke-hello.jsonl"
     if not smoke_dst.exists():
-        shutil.copyfile(TEMPLATES_DIR / "smoke-hello.jsonl", smoke_dst)
+        shutil.copyfile(templates / "smoke-hello.jsonl", smoke_dst)
         created.append(str(smoke_dst))
 
     plugin_dst = dot / "plugins" / "example_verify.py"
     if not plugin_dst.exists():
-        shutil.copyfile(TEMPLATES_DIR / "plugins" / "example_verify.py", plugin_dst)
+        shutil.copyfile(templates / "plugins" / "example_verify.py", plugin_dst)
         created.append(str(plugin_dst))
 
     gitignore = root / ".gitignore"
@@ -296,6 +296,7 @@ async def get_run_report(project_root: Path | str, run_id: str) -> dict[str, Any
         if reasons:
             suspicious.append({**t, "reasons": reasons})
 
+    audio_path = report_dir / "conversation.wav"
     return {
         "found": True,
         "run_id": run_id,
@@ -304,6 +305,7 @@ async def get_run_report(project_root: Path | str, run_id: str) -> dict[str, Any
         "suspicious_turns": suspicious,
         "timeline_path": str(report_dir / "timeline.md"),
         "events_path": str(report_dir / "events.jsonl"),
+        "audio_path": str(audio_path) if audio_path.exists() else None,
     }
 
 

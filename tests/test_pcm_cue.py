@@ -24,8 +24,7 @@ def test_load_wav_pcm(tmp_path: Path) -> None:
 
 
 def test_resolve_cue_asset_package_template() -> None:
-    root = Path(__file__).resolve().parents[1]
-    path = resolve_cue_asset("backchannel_ja.wav", scenario_dir=None, package_root=root)
+    path = resolve_cue_asset("backchannel_ja.wav", scenario_dir=None)
     assert path.exists()
 
 

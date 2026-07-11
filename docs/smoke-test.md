@@ -44,6 +44,9 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim log <run-id> --kind "
   (from the sim's own Gemini transcription) alternate per turn.
 - `reports/<run-id>/timeline.md` reads like a call narrative; `summary.json` has
   turn-taking percentiles and (if PassCriteria set) a judge verdict.
+- With `observe.record_audio: true` (default in template): `reports/<run-id>/conversation.wav`
+  is a local stereo file (L=sim caller, R=agent). No LiveKit Egress. Override language/timezone
+  in `.agent-sim/config.yaml` for your market (package defaults are `en-US` / `UTC`).
 
 ## Common failures
 

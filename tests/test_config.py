@@ -11,14 +11,15 @@ livekit:
   agent_name: "my-agent-local"
 simulator:
   google_api_key: "AIzaTest"
-  language: "ja-JP"
+  language: "en-US"
   voice:
     model: "gemini-3.1-flash-live-preview"
     voice: "Puck"
 judge:
   model: "gemini-2.5-flash"
 observe:
-  timezone: "Asia/Ho_Chi_Minh"
+  timezone: "UTC"
+  record_audio: true
   data_topics: ["app.events"]
   tool_event_patterns:
     - match: { topic: "app.events", type: "tool_started" }
@@ -41,8 +42,11 @@ def test_load_valid_config(tmp_path):
     assert cfg.simulator.voice.model == "gemini-3.1-flash-live-preview"
     assert cfg.judge is not None and cfg.judge.model == "gemini-2.5-flash"
     assert cfg.observe.silence_threshold_ms == 3000
+    assert cfg.observe.record_audio is True
+    assert cfg.observe.audio_recording_enabled is True
     assert cfg.observe.tool_event_patterns[0].emit == "tool.start"
     assert cfg.sqlite_path == tmp_path / ".agent-sim" / "runs.sqlite"
+    assert config_snapshot(cfg)["observe"]["record_audio"] is True
 
 
 def test_missing_config_file(tmp_path):

@@ -206,8 +206,7 @@ def evaluate_script_log(
     )
 
     verify = verify or ScriptVerifySpec()
-    if verify.require_during_agent_speech and steps and not all(c.get("pass") for c in checks):
-        pass  # step checks already cover during_agent_speech
+    # require_during_agent_speech is enforced per agent_speaking step in checks above.
     if verify.min_agent_finals_after_first_cue > 0:
         ok = agent_after_cue >= verify.min_agent_finals_after_first_cue
         checks.append(

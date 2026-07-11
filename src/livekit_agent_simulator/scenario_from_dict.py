@@ -75,7 +75,7 @@ def scenario_from_dict(
     scenario = Scenario(
         id=str(scenario_id),
         path=path or Path(f"{scenario_id}.jsonl"),
-        locale=str(data.get("locale") or metadata.get("locale", "ja-JP")),
+        locale=str(data.get("locale") or metadata.get("locale", "en-US")),
         tags=[str(t) for t in (data.get("tags") or metadata.get("tags") or [])],
         persona=persona,
         context=dict(data.get("context") or {}),

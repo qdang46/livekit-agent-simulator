@@ -5,10 +5,11 @@ Every event carries: event_id, seq, run_id, turn, kind, ts (epoch ms), ts_mono_m
 dialogue snapshot (what user/agent said so far this turn), and a kind-specific spec.
 
 Artifacts written under reports/<run-id>/:
-    events.jsonl   append-only, one envelope per line (flushed on every emit)
-    timeline.md    human-readable narrative table (written at finalize)
-    summary.json   aggregates: duration, turns, P50/P95 turn-taking, tool errors, verdict
-    meta.json      run metadata: scenario, room, agent_name, config snapshot
+    events.jsonl      append-only, one envelope per line (flushed on every emit)
+    timeline.md       human-readable narrative table (written at finalize)
+    summary.json      aggregates: duration, turns, P50/P95 turn-taking, tool errors, verdict
+    meta.json         run metadata: scenario, room, agent_name, config snapshot
+    conversation.wav  local stereo PCM when observe.record_audio is true (L=sim, R=agent)
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ class EventWriter:
         self,
         run_id: str,
         report_dir: Path,
-        timezone_name: str = "Asia/Ho_Chi_Minh",
+        timezone_name: str = "UTC",
         turn_taking_warn_ms: int = 2_500,
     ) -> None:
         self.run_id = run_id
@@ -198,8 +199,6 @@ class EventWriter:
                 row["agent_text"] = spec.get("text")
                 if spec.get("turn_taking_ms") is not None:
                     row["turn_taking_ms"] = spec["turn_taking_ms"]
-            elif kind == "turn.boundary" and spec.get("turn_taking_ms") is not None:
-                row["turn_taking_ms"] = spec["turn_taking_ms"]
             elif kind == "tool.start":
                 row["tool_count"] += 1
             elif kind == "tool.error":
@@ -221,7 +220,7 @@ class EventWriter:
             local_time = e["datetime_local"].split("T")[1][:12]
             detail = self._describe(e)
             warn = ""
-            if e["kind"] in ("turn.boundary", "transcript.agent.final"):
+            if e["kind"] == "transcript.agent.final":
                 ttm = e.get("spec", {}).get("turn_taking_ms")
                 if ttm is not None and ttm > self._warn_ms:
                     warn = f" ⚠ slow ({ttm}ms > {self._warn_ms}ms)"

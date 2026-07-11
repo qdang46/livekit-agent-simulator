@@ -24,8 +24,10 @@ from google import genai
 from google.genai import types
 from livekit import rtc
 
+from ..audio.local_recorder import LocalConversationRecorder
 from ..audio.pcm_cue import load_wav_pcm, play_pcm_to_source, resolve_cue_asset
 from ..config import SimConfig
+from ..paths import package_templates_dir
 
 if TYPE_CHECKING:
     from ..livekit.observer import Observer
@@ -34,7 +36,6 @@ if TYPE_CHECKING:
 GEMINI_IN_RATE = 16_000
 GEMINI_OUT_RATE = 24_000
 END_CALL_TOKEN = "[END_CALL]"
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class GeminiCallerBridge:
@@ -48,6 +49,7 @@ class GeminiCallerBridge:
         writer: "EventWriter",
         persona_system_prompt: str,
         first_speaker: str,
+        recorder: LocalConversationRecorder | None = None,
     ) -> None:
         self.cfg = cfg
         self.room = room
@@ -55,6 +57,7 @@ class GeminiCallerBridge:
         self.writer = writer
         self.persona_system_prompt = persona_system_prompt
         self.first_speaker = first_speaker
+        self.recorder = recorder
 
         self.end_call = asyncio.Event()
         self._agent_track_queue: asyncio.Queue[rtc.RemoteAudioTrack] = asyncio.Queue()
@@ -89,6 +92,8 @@ class GeminiCallerBridge:
             track,
             rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
         )
+        if self.recorder is not None:
+            self.recorder.mark_start()
         self.writer.emit(
             "sim.mic_published",
             spec={"sample_rate": GEMINI_OUT_RATE},
@@ -179,8 +184,14 @@ class GeminiCallerBridge:
                 raise RuntimeError("Sim mic not published — cannot play room_pcm cue")
             if not asset:
                 raise ValueError("room_pcm cue requires asset")
-            wav_path = resolve_cue_asset(asset, scenario_dir=scenario_dir, package_root=_REPO_ROOT)
+            wav_path = resolve_cue_asset(
+                asset,
+                scenario_dir=scenario_dir,
+                templates_dir=package_templates_dir(),
+            )
             pcm, rate, channels = load_wav_pcm(wav_path)
+            if self.recorder is not None and channels == 1:
+                self.recorder.push_sim(pcm, rate)
             await play_pcm_to_source(self._source, pcm, sample_rate=rate, num_channels=channels)
             self.writer.emit(
                 "sim.script_inject",
@@ -216,9 +227,12 @@ class GeminiCallerBridge:
             try:
                 async for frame_event in stream:
                     frame = frame_event.frame
+                    pcm = bytes(frame.data)
+                    if self.recorder is not None:
+                        self.recorder.push_agent(pcm, GEMINI_IN_RATE)
                     await session.send_realtime_input(
                         audio=types.Blob(
-                            data=bytes(frame.data),
+                            data=pcm,
                             mime_type=f"audio/pcm;rate={GEMINI_IN_RATE}",
                         )
                     )
@@ -278,7 +292,7 @@ class GeminiCallerBridge:
                         for part in sc.model_turn.parts or []:
                             blob = part.inline_data
                             if blob and blob.data and not self._persona_output_suppressed():
-                                await self._play_pcm(source, blob.data)
+                                await self._play_pcm(source, blob.data, recorder=self.recorder)
 
                     if sc.turn_complete:
                         if self._persona_output_suppressed():
@@ -313,10 +327,17 @@ class GeminiCallerBridge:
             self.end_call.set()
 
     @staticmethod
-    async def _play_pcm(source: rtc.AudioSource, pcm: bytes) -> None:
+    async def _play_pcm(
+        source: rtc.AudioSource,
+        pcm: bytes,
+        *,
+        recorder: LocalConversationRecorder | None = None,
+    ) -> None:
         samples = len(pcm) // 2  # PCM16 mono
         if samples == 0:
             return
+        if recorder is not None:
+            recorder.push_sim(pcm, GEMINI_OUT_RATE)
         frame = rtc.AudioFrame(
             data=pcm,
             sample_rate=GEMINI_OUT_RATE,
