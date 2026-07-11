@@ -474,6 +474,57 @@ function setFollowUi(btn: HTMLButtonElement, on: boolean): void {
   btn.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
+/** Pick the chat line that matches current audio time (prefer dialogue over markers). */
+function findActiveIndex(els: HTMLElement[], tMs: number): number {
+  let bestDialogue = -1;
+  let bestDialogueSpan = Number.POSITIVE_INFINITY;
+  let bestMarker = -1;
+  let bestMarkerSpan = Number.POSITIVE_INFINITY;
+  let lastStarted = -1;
+
+  for (let i = 0; i < els.length; i++) {
+    const start = Number(els[i].dataset.start);
+    let end = Number(els[i].dataset.end);
+    if (!Number.isFinite(start)) continue;
+    if (!Number.isFinite(end) || end <= start) end = start + 900;
+
+    if (tMs >= start) lastStarted = i;
+
+    if (tMs >= start && tMs < end) {
+      const span = end - start;
+      const isMarker = els[i].classList.contains("marker");
+      if (isMarker) {
+        if (span < bestMarkerSpan) {
+          bestMarkerSpan = span;
+          bestMarker = i;
+        }
+      } else if (span < bestDialogueSpan) {
+        // Prefer tighter dialogue windows; stable last match on ties via < only.
+        bestDialogueSpan = span;
+        bestDialogue = i;
+      }
+    }
+  }
+
+  if (bestDialogue >= 0) return bestDialogue;
+  if (bestMarker >= 0) return bestMarker;
+  return lastStarted;
+}
+
+function setNowBadge(el: HTMLElement, on: boolean): void {
+  let badge = el.querySelector<HTMLElement>(":scope > .now-badge");
+  if (on) {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "now-badge";
+      badge.textContent = "Now";
+      el.appendChild(badge);
+    }
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
 function syncActive(
   els: HTMLElement[],
   audio: HTMLAudioElement,
@@ -482,15 +533,13 @@ function syncActive(
   follow: FollowState,
 ): void {
   const t = (audio.currentTime || 0) * 1000;
-  let active = -1;
-  for (let i = 0; i < els.length; i++) {
-    const start = Number(els[i].dataset.start);
-    const end = Number(els[i].dataset.end);
-    if (t >= start && t < end) active = i;
-    else if (t >= start) active = i;
-  }
+  const active = findActiveIndex(els, t);
+
   els.forEach((el, i) => {
-    el.classList.toggle("active", i === active);
+    const on = i === active;
+    el.classList.toggle("active", on);
+    el.setAttribute("aria-current", on ? "true" : "false");
+    setNowBadge(el, on);
   });
 
   // Only auto-scroll when follow is on, and only when the active line changes

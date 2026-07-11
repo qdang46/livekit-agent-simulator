@@ -430,16 +430,82 @@ audio {
   background: var(--panel);
 }
 
+/* Current playback position — must be obvious while listening */
 .cue.active {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 70%, transparent);
+  z-index: 2;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--active) 85%, transparent),
+    0 6px 20px color-mix(in srgb, var(--active) 22%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--active) 55%, transparent);
+  outline-offset: 1px;
 }
 
 .cue.role-agent.active {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent) 55%, transparent);
+  background: color-mix(in srgb, var(--agent) 28%, var(--agent-bg));
+  border-color: var(--agent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--agent) 70%, transparent),
+    0 6px 22px color-mix(in srgb, var(--agent) 25%, transparent);
+  outline-color: color-mix(in srgb, var(--agent) 50%, transparent);
 }
 
 .cue.role-user.active {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--user) 55%, transparent);
+  background: color-mix(in srgb, var(--user) 26%, var(--user-bg));
+  border-color: var(--user);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--user) 70%, transparent),
+    0 6px 22px color-mix(in srgb, var(--user) 25%, transparent);
+  outline-color: color-mix(in srgb, var(--user) 50%, transparent);
+}
+
+.now-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: 0.65rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--active);
+  color: #111;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--active) 40%, transparent);
+  pointer-events: none;
+  animation: now-pulse 1.4s ease-in-out infinite;
+}
+
+.cue.role-agent .now-badge {
+  background: var(--agent);
+  color: #0b1220;
+  right: auto;
+  left: 0.65rem;
+}
+
+.cue.role-user .now-badge {
+  background: var(--user);
+  color: #042f2e;
+}
+
+.cue.marker .now-badge {
+  right: 50%;
+  transform: translateX(50%);
+}
+
+@keyframes now-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .now-badge {
+    animation: none;
+  }
 }
 
 /* Marker rows (events, not dialogue) */
@@ -482,7 +548,12 @@ audio {
 }
 
 .cue.marker.active {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 50%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--active) 75%, transparent),
+    0 4px 14px color-mix(in srgb, var(--active) 18%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--active) 45%, transparent);
+  outline-offset: 1px;
+  filter: brightness(1.08);
 }
 
 .cue-meta {

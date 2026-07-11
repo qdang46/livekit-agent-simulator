@@ -161,10 +161,13 @@ def test_build_cues_applies_audio_offset(tmp_path: Path) -> None:
     assert payload["audio"]["t0_mono_ms"] == 2000
     assert len(payload["cues"]) == 2
     assert payload["cues"][0]["role"] == "agent"
-    assert payload["cues"][0]["start_ms"] == 3000  # 5000 - 2000
     assert payload["cues"][0]["text"] == "Hello there"
-    assert payload["cues"][1]["start_ms"] == 7000
-    assert payload["cues"][0]["end_ms"] == 7000
+    # Final at mono 5000 → audio 3000; range covers speech window ending at final.
+    assert payload["cues"][0]["start_ms"] == 0
+    assert payload["cues"][0]["end_ms"] >= 3000
+    assert payload["cues"][1]["role"] == "user"
+    assert payload["cues"][1]["start_ms"] == 3000  # previous final
+    assert payload["cues"][1]["end_ms"] >= 7000  # user final 9000-2000
     assert payload["markers"] == []
 
 

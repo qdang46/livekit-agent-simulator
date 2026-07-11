@@ -297,14 +297,26 @@ def _build_transcript_cues(
                 continue
         cues.append(c)
 
+    # Event timestamps are *final* (end of speech). Map ranges so playback
+    # highlight covers the utterance window, not only the post-final gap:
+    #   start ≈ previous final (or 0), end ≈ this final.
+    finals = [int(c["start_ms"]) for c in cues]
     for i, c in enumerate(cues):
-        if i + 1 < len(cues):
-            end = cues[i + 1]["start_ms"]
-        elif duration_ms is not None:
-            end = duration_ms
+        final_ms = finals[i]
+        if i == 0:
+            start = 0
         else:
-            end = c["start_ms"] + 3000
-        c["end_ms"] = max(c["start_ms"] + 200, end)
+            start = finals[i - 1]
+        # Keep a small tail so the last word stays highlighted briefly.
+        if i + 1 < len(cues):
+            tail = min(600, max(0, finals[i + 1] - final_ms) // 2)
+        elif duration_ms is not None:
+            tail = min(800, max(0, int(duration_ms) - final_ms))
+        else:
+            tail = 600
+        end = final_ms + tail
+        c["start_ms"] = start
+        c["end_ms"] = max(start + 200, end)
 
     return cues
 
