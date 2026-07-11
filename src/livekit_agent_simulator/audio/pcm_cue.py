@@ -83,4 +83,6 @@ async def play_pcm_to_source(
         )
         await source.capture_frame(frame)
         await asyncio.sleep(FRAME_MS / 1000.0)
-    await source.wait_for_playout()
+    # Do NOT call source.wait_for_playout(): Gemini Live also streams into the same
+    # AudioSource, so the queue never drains and wait_for_playout hangs forever.
+    # Streaming frames + FRAME_MS sleep already paces real-time playout.

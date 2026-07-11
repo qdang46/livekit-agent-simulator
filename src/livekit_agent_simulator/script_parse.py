@@ -35,6 +35,7 @@ def parse_script_verify(raw: Any) -> ScriptVerifySpec | None:
         if raw.get("max_interruptions") is not None
         else None,
         min_agent_finals_after_silence=int(raw.get("min_agent_finals_after_silence", 0)),
+        min_agent_finals_after_barge_in=int(raw.get("min_agent_finals_after_barge_in", 0)),
         plugins=plugins,
         plugin_options=plugin_options,
     )
@@ -79,7 +80,8 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
         # Barge-in convenience: short delay while agent speaking
         delay_ms = int(raw.get("delay_ms", 800))
         min_agent = int(raw.get("min_agent_active_ms", 400))
-        if raw.get("barge_in") or raw.get("interrupt"):
+        barge_in = bool(raw.get("barge_in") or raw.get("interrupt"))
+        if barge_in:
             delay_ms = int(raw.get("delay_ms", 250))
             min_agent = int(raw.get("min_agent_active_ms", 200))
             trigger = "agent_speaking"
@@ -99,6 +101,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 silence_after_cue_ms=int(raw.get("silence_after_cue_ms", 0)),
                 action=action,
                 require_agent_spoke_first=bool(raw.get("require_agent_spoke_first", True)),
+                barge_in=barge_in,
             )
         )
     return steps

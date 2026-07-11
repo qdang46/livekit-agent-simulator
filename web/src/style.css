@@ -9,6 +9,13 @@
   --active: #fdd663;
   --border: #2a2f3a;
   --warn: #f28b82;
+  /* Behavior markers */
+  --mk-barge: #f28b82;
+  --mk-script: #a78bfa;
+  --mk-silence-wait: #fdd663;
+  --mk-silence: #fbbc04;
+  --mk-interrupt: #ff8a65;
+  --mk-recovery: #34d399;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -29,6 +36,12 @@
     --active: #e37400;
     --border: #dadce0;
     --warn: #c5221f;
+    --mk-barge: #d93025;
+    --mk-script: #7c3aed;
+    --mk-silence-wait: #e37400;
+    --mk-silence: #f9ab00;
+    --mk-interrupt: #e8710a;
+    --mk-recovery: #137333;
   }
 }
 
@@ -98,7 +111,133 @@ audio {
   margin: 0.5rem 0 0;
 }
 
-.transcript-panel h2 {
+/* Timeline with marker bands */
+.timeline {
+  position: relative;
+  height: 36px;
+  margin-top: 0.85rem;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.timeline-band {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 4px;
+  opacity: 0.85;
+  min-width: 3px;
+  transition: opacity 0.12s;
+}
+
+.timeline-band:hover {
+  opacity: 1;
+  outline: 1px solid var(--text);
+  z-index: 2;
+}
+
+.timeline-band.barge_in {
+  background: var(--mk-barge);
+}
+.timeline-band.script_cue {
+  background: var(--mk-script);
+}
+.timeline-band.silence_wait {
+  background: var(--mk-silence-wait);
+}
+.timeline-band.silence {
+  background: var(--mk-silence);
+}
+.timeline-band.interruption {
+  background: var(--mk-interrupt);
+}
+.timeline-band.recovery {
+  background: var(--mk-recovery);
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.9rem;
+  margin-top: 0.65rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.swatch.barge_in {
+  background: var(--mk-barge);
+}
+.swatch.script_cue {
+  background: var(--mk-script);
+}
+.swatch.silence_wait {
+  background: var(--mk-silence-wait);
+}
+.swatch.silence {
+  background: var(--mk-silence);
+}
+.swatch.interruption {
+  background: var(--mk-interrupt);
+}
+.swatch.recovery {
+  background: var(--mk-recovery);
+}
+
+/* Verify summary chips */
+.verify-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+}
+
+.chip {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 80%, var(--border));
+  color: var(--muted);
+}
+
+.chip.pass {
+  border-color: color-mix(in srgb, var(--mk-recovery) 55%, var(--border));
+  color: var(--mk-recovery);
+}
+
+.chip.fail {
+  border-color: color-mix(in srgb, var(--mk-barge) 55%, var(--border));
+  color: var(--mk-barge);
+}
+
+.section-title {
   font-size: 1rem;
   margin: 1.25rem 0 0.5rem;
   text-transform: uppercase;
@@ -139,10 +278,47 @@ audio {
   box-shadow: 0 0 0 1px var(--active);
 }
 
+/* Marker rows (interleaved timeline) */
+.cue.marker {
+  border-style: dashed;
+  border-width: 2px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+
+.cue.marker.barge_in {
+  border-color: var(--mk-barge);
+  background: color-mix(in srgb, var(--mk-barge) 12%, var(--panel));
+}
+.cue.marker.script_cue {
+  border-color: var(--mk-script);
+  background: color-mix(in srgb, var(--mk-script) 12%, var(--panel));
+}
+.cue.marker.silence_wait {
+  border-color: var(--mk-silence-wait);
+  background: color-mix(in srgb, var(--mk-silence-wait) 14%, var(--panel));
+}
+.cue.marker.silence {
+  border-color: var(--mk-silence);
+  background: color-mix(in srgb, var(--mk-silence) 14%, var(--panel));
+}
+.cue.marker.interruption {
+  border-color: var(--mk-interrupt);
+  background: color-mix(in srgb, var(--mk-interrupt) 14%, var(--panel));
+}
+.cue.marker.recovery {
+  border-color: var(--mk-recovery);
+  background: color-mix(in srgb, var(--mk-recovery) 12%, var(--panel));
+}
+
+.cue.marker.active {
+  box-shadow: 0 0 0 1px currentColor;
+}
+
 .cue-meta {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: 0.35rem;
   font-size: 0.8rem;
 }
@@ -161,14 +337,80 @@ audio {
   color: var(--user);
 }
 
+.role.marker-type {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.role.marker-type.barge_in {
+  color: var(--mk-barge);
+}
+.role.marker-type.script_cue {
+  color: var(--mk-script);
+}
+.role.marker-type.silence_wait {
+  color: var(--mk-silence-wait);
+}
+.role.marker-type.silence {
+  color: var(--mk-silence);
+}
+.role.marker-type.interruption {
+  color: var(--mk-interrupt);
+}
+.role.marker-type.recovery {
+  color: var(--mk-recovery);
+}
+
 .time {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
+.tag {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.tag.barge_in {
+  color: var(--mk-barge);
+  border-color: color-mix(in srgb, var(--mk-barge) 50%, var(--border));
+}
+.tag.script_cue {
+  color: var(--mk-script);
+  border-color: color-mix(in srgb, var(--mk-script) 50%, var(--border));
+}
+.tag.silence_wait {
+  color: var(--mk-silence-wait);
+  border-color: color-mix(in srgb, var(--mk-silence-wait) 50%, var(--border));
+}
+.tag.silence {
+  color: var(--mk-silence);
+  border-color: color-mix(in srgb, var(--mk-silence) 50%, var(--border));
+}
+.tag.interruption {
+  color: var(--mk-interrupt);
+  border-color: color-mix(in srgb, var(--mk-interrupt) 50%, var(--border));
+}
+.tag.recovery {
+  color: var(--mk-recovery);
+  border-color: color-mix(in srgb, var(--mk-recovery) 50%, var(--border));
+}
+
 .cue-text {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.cue-detail {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .run-list {

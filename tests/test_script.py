@@ -99,3 +99,38 @@ def test_evaluate_silence_wait_and_agent_resume():
     )
     assert result["pass"] is True
     assert result["agent_finals_after_silence"] == 1
+
+
+def test_evaluate_barge_in_recovery():
+    steps = [
+        ScriptStep(
+            "bi",
+            "agent_speaking",
+            250,
+            say="wait—",
+            label="barge",
+            barge_in=True,
+            min_agent_active_ms=200,
+        )
+    ]
+    events = [
+        {
+            "kind": "sim.script.cue",
+            "ts_mono_ms": 3000,
+            "spec": {
+                "step_id": "bi",
+                "during_agent_speech": True,
+                "barge_in": True,
+                "trigger": "agent_speaking",
+                "waited_ms": 400,
+            },
+        },
+        {"kind": "transcript.agent.final", "ts_mono_ms": 6000, "spec": {"text": "Sorry, go ahead."}},
+    ]
+    result = evaluate_script_log(
+        events,
+        steps,
+        ScriptVerifySpec(min_agent_finals_after_barge_in=1),
+    )
+    assert result["pass"] is True
+    assert result["agent_finals_after_barge_in"] == 1

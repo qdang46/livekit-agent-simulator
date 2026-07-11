@@ -33,11 +33,12 @@ Highest impact if the bar is *replace a developer on the call*.
 
 | Gap | Status | Notes |
 |---|---|---|
-| **Diverse personas** | **Partial** | `Persona.traits[]`, `Persona.language` override; full accent/noise matrix still open |
-| **Interruption / barge-in** | **Done (v1)** | Script `barge_in` / `agent_speaking` + `min_interruptions` verify |
-| **Silence / “user gone”** | **Done (v1)** | Script `trigger: silence` + `action: wait` + `min_agent_finals_after_silence` |
-| **Outcome-based pass** | **Done (v1)** | `Assert.outcomes` (`transcript_contains`, `llm_bool` → judge) |
-| **Hard tool assertions** | **Done (v1)** | `Assert.tools` name / min_count / `args_contains` |
+| **Diverse personas** | **Done (v1)** | `Persona.traits[]` + `persona_traits` library; `language` override |
+| **Parallel speech+noise** | **Done (v1)** | `ParallelMicMixer` — Gemini TTS + `room_pcm` noise layers mixed into one mic (not sequential lock) |
+| **Interruption / barge-in** | **Done** | `barge_in` + `min_interruptions` + `min_agent_finals_after_barge_in` (recovery) |
+| **Silence / “user gone”** | **Done** | `trigger: silence` + `action: wait` + `min_agent_finals_after_silence` |
+| **Outcome-based pass** | **Done** | `Assert.outcomes` (`transcript_contains`, `llm_bool` → judge) |
+| **Hard tool assertions** | **Done** | `Assert.tools` name / min_count / `args_contains` |
 
 Also: Script `trigger: time`, `action: speak|wait`; transcript phrase asserts.
 
@@ -73,9 +74,9 @@ Also: Script `trigger: time`, `action: speak|wait`; transcript phrase asserts.
 |---|---|
 | Open mic, greet agent | ✅ execute + persona |
 | One happy-path flow | ✅ scenario |
-| Barge-in, “uh-huh”, silence | ⚠️ Script partial — need behavior library |
+| Barge-in, “uh-huh”, silence | ✅ Script `barge_in` / silence / traits |
 | Switch language / voice | ⚠️ config — no scenario matrix |
-| Check tool calls | ⚠️ observe patterns — need hard asserts |
+| Check tool calls | ✅ `Assert.tools` + outcomes |
 | Re-listen to call | ✅ wav + `lk-sim web` |
 | Compare before/after change | ⚠️ `compare` — no golden baseline |
 | Run 20 cases before ship | ⚠️ `execute-all` — thin suite report / flake |
@@ -110,8 +111,7 @@ Keep portable: no consumer-specific keys in `src/`; extension via scenario / con
 | Area | Status |
 |---|---|
 | Core sim + report + web replay | Done (usable) |
-| P0 behavior + structured pass | **v1 shipped** (traits, silence/barge Script, Assert tools/transcript/outcomes) |
-| P0 remaining | Persona noise/accent library; richer interrupt recovery asserts |
+| P0 behavior + structured pass | **Done** (trait library, silence/barge + recovery, Assert tools/transcript/outcomes) |
 | P1 regression / CI suite | Open |
 | P2 load / SIP / prod import | Deferred |
 

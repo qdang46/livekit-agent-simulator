@@ -25,7 +25,8 @@ from google.genai import types
 from livekit import rtc
 
 from ..audio.local_recorder import LocalConversationRecorder
-from ..audio.pcm_cue import load_wav_pcm, play_pcm_to_source, resolve_cue_asset
+from ..audio.mic_mixer import ParallelMicMixer
+from ..audio.pcm_cue import load_wav_pcm, resolve_cue_asset
 from ..config import SimConfig
 from ..paths import package_templates_dir
 
@@ -63,6 +64,8 @@ class GeminiCallerBridge:
         self._agent_track_queue: asyncio.Queue[rtc.RemoteAudioTrack] = asyncio.Queue()
         self._tasks: list[asyncio.Task] = []
         self._source: rtc.AudioSource | None = None
+        # Parallel speech+noise into one AudioSource (single writer, multi-layer mix).
+        self._mixer: ParallelMicMixer | None = None
         self._sim_out_text = ""
         self._live_session: Any | None = None
         self._suppress_output_until_mono: float | None = None
@@ -94,9 +97,16 @@ class GeminiCallerBridge:
         )
         if self.recorder is not None:
             self.recorder.mark_start()
+        # Mixer owns capture_frame; speech (Gemini) + noise (room_pcm) mix in parallel.
+        self._mixer = ParallelMicMixer(
+            self._source,
+            sample_rate=GEMINI_OUT_RATE,
+            recorder=self.recorder,
+        )
+        self._mixer.start()
         self.writer.emit(
             "sim.mic_published",
-            spec={"sample_rate": GEMINI_OUT_RATE},
+            spec={"sample_rate": GEMINI_OUT_RATE, "mixer": "parallel"},
             source="sim",
             include_dialogue=False,
         )
@@ -149,9 +159,14 @@ class GeminiCallerBridge:
                 for t in self._tasks:
                     t.cancel()
                 await asyncio.gather(*self._tasks, return_exceptions=True)
+                if self._mixer is not None:
+                    await self._mixer.aclose()
+                    self._mixer = None
 
     def stop(self) -> None:
         self.end_call.set()
+        if self._mixer is not None:
+            self._mixer.stop()
 
     def suppress_persona_output(self, duration_ms: int) -> None:
         """Block Gemini audio/text to the room after a scripted PCM cue (caller silence)."""
@@ -180,8 +195,8 @@ class GeminiCallerBridge:
     ) -> None:
         """Inject caller speech while the agent is talking."""
         if delivery == "room_pcm":
-            if self._source is None:
-                raise RuntimeError("Sim mic not published — cannot play room_pcm cue")
+            if self._mixer is None or self._source is None:
+                raise RuntimeError("Sim mic/mixer not ready — cannot play room_pcm cue")
             if not asset:
                 raise ValueError("room_pcm cue requires asset")
             wav_path = resolve_cue_asset(
@@ -190,12 +205,28 @@ class GeminiCallerBridge:
                 templates_dir=package_templates_dir(),
             )
             pcm, rate, channels = load_wav_pcm(wav_path)
-            if self.recorder is not None and channels == 1:
-                self.recorder.push_sim(pcm, rate)
-            await play_pcm_to_source(self._source, pcm, sample_rate=rate, num_channels=channels)
+            if channels != 1:
+                raise ValueError("Only mono room_pcm assets are supported")
+            if rate != GEMINI_OUT_RATE:
+                raise ValueError(
+                    f"room_pcm asset rate {rate} != sim mic {GEMINI_OUT_RATE} "
+                    f"(resample cue WAV): {wav_path}"
+                )
+            # Parallel: noise layer mixes with Gemini speech; does not mute TTS.
+            self._mixer.push_noise(pcm)
+            # Pace script step roughly for the noise duration without blocking speech path.
+            duration_s = max(0.05, len(pcm) / 2 / rate)
+            await asyncio.sleep(duration_s)
             self.writer.emit(
                 "sim.script_inject",
-                spec={"text": text, "label": label, "delivery": delivery, "asset": str(wav_path)},
+                spec={
+                    "text": text,
+                    "label": label,
+                    "delivery": delivery,
+                    "asset": str(wav_path),
+                    "mix": "parallel",
+                    "duration_ms": int(duration_s * 1000),
+                },
                 source="script",
                 include_dialogue=False,
             )
@@ -292,7 +323,7 @@ class GeminiCallerBridge:
                         for part in sc.model_turn.parts or []:
                             blob = part.inline_data
                             if blob and blob.data and not self._persona_output_suppressed():
-                                await self._play_pcm(source, blob.data, recorder=self.recorder)
+                                await self._play_pcm(blob.data)
 
                     if sc.turn_complete:
                         if self._persona_output_suppressed():
@@ -326,18 +357,22 @@ class GeminiCallerBridge:
             )
             self.end_call.set()
 
-    @staticmethod
-    async def _play_pcm(
-        source: rtc.AudioSource,
-        pcm: bytes,
-        *,
-        recorder: LocalConversationRecorder | None = None,
-    ) -> None:
-        samples = len(pcm) // 2  # PCM16 mono
+    async def _play_pcm(self, pcm: bytes) -> None:
+        """Queue Gemini TTS onto the parallel mixer (mixes with active noise layers)."""
+        if not pcm:
+            return
+        if self._mixer is not None:
+            self._mixer.push_speech(pcm)
+            return
+        # Fallback if mixer not started (should not happen after publish_mic).
+        source = self._source
+        if source is None:
+            return
+        samples = len(pcm) // 2
         if samples == 0:
             return
-        if recorder is not None:
-            recorder.push_sim(pcm, GEMINI_OUT_RATE)
+        if self.recorder is not None:
+            self.recorder.push_sim(pcm, GEMINI_OUT_RATE)
         frame = rtc.AudioFrame(
             data=pcm,
             sample_rate=GEMINI_OUT_RATE,

@@ -35,6 +35,7 @@ class ScriptStep:
     action: str = "speak"  # speak | wait
     # For silence trigger: only start counting idle after agent has spoken once.
     require_agent_spoke_first: bool = True
+    barge_in: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,8 @@ class ScriptVerifySpec:
     max_interruptions: int | None = None
     # After a silence-wait step, require agent transcript final later (agent re-prompts).
     min_agent_finals_after_silence: int = 0
+    # After a barge_in cue, require agent to speak again (recovery).
+    min_agent_finals_after_barge_in: int = 0
     plugins: tuple[str, ...] = ()
     plugin_options: dict[str, Any] = field(default_factory=dict)
 
@@ -142,18 +145,34 @@ class ScriptRunner:
                 self.observer.agent_is_active_speaker
                 or agent_active_ms >= step.min_agent_active_ms
             )
+            inject_error: str | None = None
             if step.action == "wait":
                 kind = "sim.script.wait"
             else:
                 kind = "sim.script.cue"
-                await self.bridge.inject_cue(
-                    step.say,
-                    label=step.label or step.id,
-                    delivery=step.delivery,
-                    asset=step.asset,
-                    scenario_dir=self.scenario_dir,
-                )
-                if step.silence_after_cue_ms > 0:
+                try:
+                    await self.bridge.inject_cue(
+                        step.say,
+                        label=step.label or step.id,
+                        delivery=step.delivery,
+                        asset=step.asset,
+                        scenario_dir=self.scenario_dir,
+                    )
+                except Exception as e:  # noqa: BLE001 — keep script chain alive
+                    inject_error = f"{type(e).__name__}: {e}"
+                    self.writer.emit(
+                        "sim.script.error",
+                        spec={
+                            "step_id": step.id,
+                            "label": step.label or step.id,
+                            "delivery": step.delivery,
+                            "asset": step.asset,
+                            "error": inject_error,
+                        },
+                        source="sim.script",
+                        include_dialogue=False,
+                    )
+                if step.silence_after_cue_ms > 0 and inject_error is None:
                     self.bridge.suppress_persona_output(step.silence_after_cue_ms)
             self.writer.emit(
                 kind,
@@ -163,10 +182,12 @@ class ScriptRunner:
                     "say": step.say,
                     "trigger": step.trigger,
                     "action": step.action,
+                    "barge_in": step.barge_in,
                     "waited_ms": waited_ms,
                     "agent_active": self.observer.agent_is_active_speaker,
                     "agent_active_ms": agent_active_ms,
                     "during_agent_speech": during_agent_speech,
+                    "error": inject_error,
                 },
                 source="sim.script",
                 include_dialogue=False,
@@ -234,6 +255,20 @@ def evaluate_script_log(
         or (e.get("spec") or {}).get("action") == "wait"
     ]
     silence_ms = silence_cues[0]["ts_mono_ms"] if silence_cues else None
+    barge_cues = [
+        e
+        for e in cues
+        if e.get("kind") == "sim.script.cue"
+        and (
+            (e.get("spec") or {}).get("barge_in")
+            or (
+                (e.get("spec") or {}).get("during_agent_speech")
+                and (e.get("spec") or {}).get("trigger") == "agent_speaking"
+                and int((e.get("spec") or {}).get("waited_ms") or 9999) < 800
+            )
+        )
+    ]
+    barge_ms = barge_cues[0]["ts_mono_ms"] if barge_cues else None
 
     agent_after_cue = (
         sum(1 for e in agent_finals if cue_ms is not None and e.get("ts_mono_ms", 0) >= cue_ms)
@@ -252,6 +287,15 @@ def evaluate_script_log(
             if silence_ms is not None and e.get("ts_mono_ms", 0) >= silence_ms
         )
         if silence_ms is not None
+        else 0
+    )
+    agent_after_barge = (
+        sum(
+            1
+            for e in agent_finals
+            if barge_ms is not None and e.get("ts_mono_ms", 0) > barge_ms
+        )
+        if barge_ms is not None
         else 0
     )
 
@@ -284,6 +328,16 @@ def evaluate_script_log(
                 "pass": ok,
                 "expected": verify.min_agent_finals_after_silence,
                 "actual": agent_after_silence,
+            }
+        )
+    if verify.min_agent_finals_after_barge_in > 0:
+        ok = agent_after_barge >= verify.min_agent_finals_after_barge_in
+        checks.append(
+            {
+                "check": "min_agent_finals_after_barge_in",
+                "pass": ok,
+                "expected": verify.min_agent_finals_after_barge_in,
+                "actual": agent_after_barge,
             }
         )
     if verify.min_interruptions is not None:
@@ -384,6 +438,7 @@ def evaluate_script_log(
         "agent_finals_after_first_cue": agent_after_cue,
         "user_finals_after_first_cue": user_after_cue,
         "agent_finals_after_silence": agent_after_silence,
+        "agent_finals_after_barge_in": agent_after_barge,
         "interruptions": len(interruptions),
         "checks": checks,
         "plugin_results": plugin_results,

@@ -180,18 +180,13 @@ class Scenario:
         if isinstance(traits, str):
             traits = [traits]
         if traits:
-            # Portable behavior tags for diverse callers (impatient, interrupts, quiet, …)
+            from .persona_traits import expand_traits
+
             lines.append(
-                "Caller behavior traits (follow these while staying natural): "
+                "Caller behavior traits (follow while staying natural): "
                 + ", ".join(str(t) for t in traits)
             )
-            if any("interrupt" in str(t).lower() or "impatient" in str(t).lower() for t in traits):
-                lines.append(
-                    "You may speak briefly over the agent when natural (impatient), "
-                    "but do not monologue."
-                )
-            if any("silent" in str(t).lower() or "quiet" in str(t).lower() for t in traits):
-                lines.append("You are often quiet; wait before answering; short replies.")
+            lines.extend(expand_traits(traits))
         if self.context.get("notes"):
             lines.append(f"Background context you know: {self.context['notes']}")
         if self.script_steps:

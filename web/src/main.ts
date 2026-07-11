@@ -1,9 +1,35 @@
 import "./style.css";
 import { fetchCues, fetchRuns } from "./api";
-import type { Cue, CuesPayload, RunSummary } from "./types";
+import type {
+  AssertVerify,
+  Cue,
+  CuesPayload,
+  Marker,
+  MarkerType,
+  RunSummary,
+  ScriptVerify,
+} from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("#app missing");
+
+const MARKER_LABELS: Record<string, string> = {
+  barge_in: "Barge-in",
+  script_cue: "Script cue",
+  silence_wait: "User pause (script)",
+  silence: "Silence detected",
+  interruption: "Interruption",
+  recovery: "Agent recovery",
+};
+
+const LEGEND_ORDER: MarkerType[] = [
+  "barge_in",
+  "silence_wait",
+  "silence",
+  "interruption",
+  "recovery",
+  "script_cue",
+];
 
 function runFromUrl(): string | null {
   return new URLSearchParams(location.search).get("run");
@@ -23,12 +49,16 @@ function fmtMs(ms: number): string {
   return `${m}:${r}`;
 }
 
+function markerTitle(type: string): string {
+  return MARKER_LABELS[type] || type.replace(/_/g, " ");
+}
+
 function renderRunList(root: HTMLElement, runs: RunSummary[]): void {
   root.innerHTML = `
     <main class="page">
       <header class="header">
         <h1>lk-sim reports</h1>
-        <p class="muted">Pick a run to play audio with time-synced transcript.</p>
+        <p class="muted">Pick a run to play audio with time-synced transcript + behavior markers.</p>
       </header>
       <ul class="run-list" id="runs"></ul>
       <p class="muted ${runs.length ? "hidden" : ""}" id="empty">
@@ -65,28 +95,39 @@ function renderRunList(root: HTMLElement, runs: RunSummary[]): void {
   }
 }
 
-function renderPlayerShell(root: HTMLElement, runId: string): {
+type PlayerUI = {
   audio: HTMLAudioElement;
   cuesEl: HTMLOListElement;
   subtitle: HTMLElement;
   missing: HTMLElement;
-} {
+  timeline: HTMLElement;
+  playhead: HTMLElement;
+  legend: HTMLElement;
+  verify: HTMLElement;
+};
+
+function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
   root.innerHTML = `
     <main class="page player-page">
       <header class="header">
         <button type="button" class="back" id="back">← runs</button>
         <h1 id="title"></h1>
         <p id="subtitle" class="muted"></p>
+        <div id="verify" class="verify-bar"></div>
       </header>
       <section class="audio-panel">
         <audio id="audio" controls preload="metadata"></audio>
         <p id="audio-missing" class="warn hidden">
-          No <code>conversation.wav</code> for this run. Transcript still lists with timestamps.
+          No <code>conversation.wav</code> for this run. Timeline still lists with timestamps.
         </p>
-        <p class="hint muted">L = sim caller · R = agent (stereo). Click a line to seek.</p>
+        <div id="timeline" class="timeline" title="Click to seek">
+          <div id="playhead" class="timeline-playhead" style="left:0"></div>
+        </div>
+        <div id="legend" class="legend"></div>
+        <p class="hint muted">L = sim caller · R = agent (stereo). Colored bands = barge-in / silence / recovery. Click a line or band to seek.</p>
       </section>
       <section class="transcript-panel">
-        <h2>Transcript</h2>
+        <h2 class="section-title">Timeline</h2>
         <ol id="cues" class="cues"></ol>
       </section>
     </main>
@@ -102,37 +143,218 @@ function renderPlayerShell(root: HTMLElement, runId: string): {
     cuesEl: root.querySelector("#cues") as HTMLOListElement,
     subtitle: root.querySelector("#subtitle") as HTMLElement,
     missing: root.querySelector("#audio-missing") as HTMLElement,
+    timeline: root.querySelector("#timeline") as HTMLElement,
+    playhead: root.querySelector("#playhead") as HTMLElement,
+    legend: root.querySelector("#legend") as HTMLElement,
+    verify: root.querySelector("#verify") as HTMLElement,
   };
 }
 
-function mountCues(
+function mountVerify(
+  el: HTMLElement,
+  script: ScriptVerify | null | undefined,
+  assertV: AssertVerify | null | undefined,
+  counts: Record<string, number> | undefined,
+): void {
+  el.innerHTML = "";
+  const chips: Array<{ text: string; cls: string }> = [];
+  if (script && typeof script.pass === "boolean") {
+    chips.push({
+      text: `script ${script.pass ? "pass" : "fail"}`,
+      cls: script.pass ? "chip pass" : "chip fail",
+    });
+    if (script.agent_finals_after_barge_in != null) {
+      chips.push({
+        text: `recovery finals: ${script.agent_finals_after_barge_in}`,
+        cls: "chip",
+      });
+    }
+    if (script.agent_finals_after_silence != null) {
+      chips.push({
+        text: `after silence: ${script.agent_finals_after_silence}`,
+        cls: "chip",
+      });
+    }
+  }
+  if (assertV && typeof assertV.pass === "boolean" && !assertV.skipped) {
+    chips.push({
+      text: `assert ${assertV.pass ? "pass" : "fail"}`,
+      cls: assertV.pass ? "chip pass" : "chip fail",
+    });
+  }
+  if (counts) {
+    for (const t of LEGEND_ORDER) {
+      const n = counts[t];
+      if (n) chips.push({ text: `${markerTitle(t)} ×${n}`, cls: "chip" });
+    }
+  }
+  for (const c of chips) {
+    const span = document.createElement("span");
+    span.className = c.cls;
+    span.textContent = c.text;
+    el.appendChild(span);
+  }
+}
+
+function mountLegend(el: HTMLElement, markers: Marker[]): void {
+  el.innerHTML = "";
+  const present = new Set(markers.map((m) => m.type));
+  const types = LEGEND_ORDER.filter((t) => present.has(t));
+  // Also show any unknown types
+  for (const m of markers) {
+    if (!types.includes(m.type)) types.push(m.type);
+  }
+  if (!types.length) {
+    el.innerHTML = `<span class="muted">No barge-in / silence / interruption markers in this run.</span>`;
+    return;
+  }
+  for (const t of types) {
+    const item = document.createElement("span");
+    item.className = "legend-item";
+    item.innerHTML = `<span class="swatch ${t}"></span>`;
+    const label = document.createElement("span");
+    label.textContent = markerTitle(t);
+    item.appendChild(label);
+    el.appendChild(item);
+  }
+}
+
+function mountTimeline(
+  timeline: HTMLElement,
+  playhead: HTMLElement,
+  markers: Marker[],
+  durationMs: number,
+  audio: HTMLAudioElement,
+): void {
+  // Keep playhead; replace bands
+  for (const node of Array.from(timeline.querySelectorAll(".timeline-band"))) {
+    node.remove();
+  }
+  const dur = Math.max(durationMs, 1);
+  for (const m of markers) {
+    const band = document.createElement("button");
+    band.type = "button";
+    band.className = `timeline-band ${m.type}`;
+    const left = (m.start_ms / dur) * 100;
+    const width = Math.max(0.4, ((m.end_ms - m.start_ms) / dur) * 100);
+    band.style.left = `${left}%`;
+    band.style.width = `${width}%`;
+    band.title = `${markerTitle(m.type)}: ${m.label}\n${fmtMs(m.start_ms)} – ${fmtMs(m.end_ms)}${m.detail ? "\n" + m.detail : ""}`;
+    band.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (!audio.src) return;
+      audio.currentTime = (m.start_ms || 0) / 1000;
+      void audio.play().catch(() => undefined);
+    });
+    timeline.appendChild(band);
+  }
+  // Ensure playhead stays on top
+  timeline.appendChild(playhead);
+
+  timeline.onclick = (ev) => {
+    if (!audio.src || !durationMs) return;
+    const rect = timeline.getBoundingClientRect();
+    const x = (ev as MouseEvent).clientX - rect.left;
+    const ratio = Math.min(1, Math.max(0, x / rect.width));
+    audio.currentTime = (ratio * durationMs) / 1000;
+    void audio.play().catch(() => undefined);
+  };
+}
+
+type TimelineItem =
+  | { kind: "cue"; start_ms: number; end_ms: number; cue: Cue }
+  | { kind: "marker"; start_ms: number; end_ms: number; marker: Marker };
+
+function buildTimelineItems(cues: Cue[], markers: Marker[]): TimelineItem[] {
+  const items: TimelineItem[] = [];
+  for (const c of cues) {
+    items.push({ kind: "cue", start_ms: c.start_ms, end_ms: c.end_ms, cue: c });
+  }
+  for (const m of markers) {
+    items.push({
+      kind: "marker",
+      start_ms: m.start_ms,
+      end_ms: m.end_ms,
+      marker: m,
+    });
+  }
+  items.sort((a, b) => {
+    if (a.start_ms !== b.start_ms) return a.start_ms - b.start_ms;
+    // Markers slightly before transcript at same time so you see the event first
+    if (a.kind !== b.kind) return a.kind === "marker" ? -1 : 1;
+    return 0;
+  });
+  return items;
+}
+
+function mountTimelineList(
   ol: HTMLOListElement,
-  cues: Cue[],
+  items: TimelineItem[],
   audio: HTMLAudioElement,
 ): HTMLElement[] {
   ol.innerHTML = "";
   const els: HTMLElement[] = [];
-  for (const c of cues) {
+  for (const item of items) {
     const li = document.createElement("li");
-    li.className = "cue";
-    li.dataset.start = String(c.start_ms);
-    li.dataset.end = String(c.end_ms);
-    li.innerHTML = `
-      <div class="cue-meta">
-        <span class="role ${c.role}"></span>
-        <span class="time"></span>
-      </div>
-      <div class="cue-text"></div>
-    `;
-    const role = li.querySelector(".role");
-    const time = li.querySelector(".time");
-    const text = li.querySelector(".cue-text");
-    if (role) role.textContent = c.role;
-    if (time) time.textContent = `${fmtMs(c.start_ms)} – ${fmtMs(c.end_ms)}`;
-    if (text) text.textContent = c.text;
+    li.dataset.start = String(item.start_ms);
+    li.dataset.end = String(item.end_ms);
+
+    if (item.kind === "marker") {
+      const m = item.marker;
+      li.className = `cue marker ${m.type}`;
+      li.innerHTML = `
+        <div class="cue-meta">
+          <span class="role marker-type ${m.type}"></span>
+          <span class="time"></span>
+          <span class="tag ${m.type}"></span>
+        </div>
+        <div class="cue-text"></div>
+        <div class="cue-detail"></div>
+      `;
+      const role = li.querySelector(".role");
+      const time = li.querySelector(".time");
+      const tag = li.querySelector(".tag");
+      const text = li.querySelector(".cue-text");
+      const detail = li.querySelector(".cue-detail");
+      if (role) role.textContent = markerTitle(m.type);
+      if (time) time.textContent = `${fmtMs(m.start_ms)} – ${fmtMs(m.end_ms)}`;
+      if (tag) tag.textContent = m.step_id || m.type;
+      if (text) text.textContent = m.label + (m.say ? ` · “${m.say}”` : "");
+      if (detail) {
+        detail.textContent = m.detail || "";
+        if (!m.detail) detail.classList.add("hidden");
+      }
+    } else {
+      const c = item.cue;
+      li.className = "cue";
+      li.innerHTML = `
+        <div class="cue-meta">
+          <span class="role ${c.role}"></span>
+          <span class="time"></span>
+          <span class="tags"></span>
+        </div>
+        <div class="cue-text"></div>
+      `;
+      const role = li.querySelector(".role");
+      const time = li.querySelector(".time");
+      const text = li.querySelector(".cue-text");
+      const tags = li.querySelector(".tags");
+      if (role) role.textContent = c.role;
+      if (time) time.textContent = `${fmtMs(c.start_ms)} – ${fmtMs(c.end_ms)}`;
+      if (text) text.textContent = c.text;
+      if (tags && c.marker_tags?.length) {
+        for (const t of c.marker_tags) {
+          const span = document.createElement("span");
+          span.className = `tag ${t}`;
+          span.textContent = markerTitle(t);
+          tags.appendChild(span);
+        }
+      }
+    }
+
     li.addEventListener("click", () => {
       if (!audio.src) return;
-      audio.currentTime = (c.start_ms || 0) / 1000;
+      audio.currentTime = (item.start_ms || 0) / 1000;
       void audio.play().catch(() => undefined);
     });
     ol.appendChild(li);
@@ -141,7 +363,12 @@ function mountCues(
   return els;
 }
 
-function syncActive(els: HTMLElement[], audio: HTMLAudioElement): void {
+function syncActive(
+  els: HTMLElement[],
+  audio: HTMLAudioElement,
+  playhead: HTMLElement,
+  durationMs: number,
+): void {
   const t = (audio.currentTime || 0) * 1000;
   let active = -1;
   for (let i = 0; i < els.length; i++) {
@@ -159,12 +386,26 @@ function syncActive(els: HTMLElement[], audio: HTMLAudioElement): void {
       if (!view) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   });
+  if (durationMs > 0) {
+    const pct = Math.min(100, Math.max(0, (t / durationMs) * 100));
+    playhead.style.left = `${pct}%`;
+  }
 }
 
 async function showPlayer(runId: string): Promise<void> {
   const ui = renderPlayerShell(app!, runId);
   try {
     const data: CuesPayload = await fetchCues(runId);
+    const markers = data.markers || [];
+    const durationMs =
+      data.audio?.duration_ms != null
+        ? Number(data.audio.duration_ms)
+        : Math.max(
+            0,
+            ...markers.map((m) => m.end_ms),
+            ...(data.cues || []).map((c) => c.end_ms),
+          ) || 1;
+
     if (data.scenario_id) {
       ui.subtitle.textContent = `scenario: ${data.scenario_id}`;
     }
@@ -173,12 +414,19 @@ async function showPlayer(runId: string): Promise<void> {
     } else {
       ui.missing.classList.remove("hidden");
     }
-    const els = mountCues(ui.cuesEl, data.cues || [], ui.audio);
+
+    mountVerify(ui.verify, data.script_verify, data.assert_verify, data.marker_counts);
+    mountLegend(ui.legend, markers);
+    mountTimeline(ui.timeline, ui.playhead, markers, durationMs, ui.audio);
+
+    const items = buildTimelineItems(data.cues || [], markers);
+    const els = mountTimelineList(ui.cuesEl, items, ui.audio);
     if (!els.length) {
       ui.subtitle.textContent =
-        (ui.subtitle.textContent || "") + " · no transcript finals found";
+        (ui.subtitle.textContent || "") + " · no transcript/markers found";
     }
-    const tick = () => syncActive(els, ui.audio);
+
+    const tick = () => syncActive(els, ui.audio, ui.playhead, durationMs);
     ui.audio.addEventListener("timeupdate", tick);
     ui.audio.addEventListener("seeked", tick);
     ui.audio.addEventListener("play", () => {
