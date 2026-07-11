@@ -50,7 +50,7 @@ Installer options (Unix) — auto-bootstraps uv; prefers CI wheel:
 
 ```bash
 # pin to a tag (downloads CI .whl from that release)
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref v0.1.1 --verify
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref v0.1.0 --verify
 
 # tip of main (source / no wheel) + skip MCP auto-config
 curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref main --no-mcp
@@ -67,7 +67,7 @@ irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/
 
 # pin tag + verify
 irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
-.\install.ps1 -GitRef v0.1.1 -Verify
+.\install.ps1 -GitRef v0.1.0 -Verify
 
 # tip of main / uninstall
 .\install.ps1 -GitRef main -NoMcp
@@ -93,10 +93,10 @@ pnpm --dir web dev      # HMR; proxy /api + /runs → lk-sim web on :8765
 
 ```bash
 # after main is green:
-git tag v0.1.1 && git push origin main --tags
+git tag -f v0.1.0 && git push origin main && git push origin v0.1.0 --force
 # → GitHub Actions: pnpm build → pytest → uv build --wheel → GitHub Release
-#    assets: install.sh + install.ps1 + livekit_agent_simulator-*.whl
-# No PyPI (wheel is GitHub Releases only)
+#    assets: install.sh + install.ps1 + livekit_agent_simulator-0.1.0-py3-none-any.whl
+# No PyPI (wheel is GitHub Releases only). Keep single version 0.1.0 while pre-1.0.
 ```
 
 ## Quick start

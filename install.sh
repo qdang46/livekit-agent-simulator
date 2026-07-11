@@ -6,7 +6,7 @@
 #   curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 #
 # Options (bash -s -- …):
-#   --version / --ref v0.1.1|main   release tag or branch (default: latest release)
+#   --version / --ref v0.1.0|main   release tag or branch (default: latest release)
 #   --from-git                      skip wheel; install from git/source only
 #   --no-mcp                        skip MCP auto-config
 #   --verify                        run lk-sim --help after install
@@ -56,7 +56,7 @@ usage() {
 Install ${PKG_NAME} from GitHub Releases (CI wheel). No PyPI.
 
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash
-  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref v0.1.1 --verify
+  curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref v0.1.0 --verify
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref main --no-mcp
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --uninstall
 
@@ -397,7 +397,7 @@ resolve_install_ref() {
   echo "main"
 }
 
-# Tag form for API: v0.1.1. Returns empty if ref is a branch.
+# Tag form for API: v0.1.0. Returns empty if ref is a branch.
 release_tag_from_ref() {
   local ref="$1"
   case "$ref" in
