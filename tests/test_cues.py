@@ -226,6 +226,9 @@ def test_build_markers_barge_silence_recovery(tmp_path: Path) -> None:
     )
     assert barge_speech["speech_origin"] == "script_barge"
     assert barge_speech.get("script_step_id") == "soft-barge"
+    # Window pinned to inject (marker ~3200), not only STT final (~3600)
+    assert barge_speech["start_ms"] <= 3200
+    assert barge_speech["end_ms"] >= 3600
     natural = next(
         c
         for c in payload["cues"]

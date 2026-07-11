@@ -512,12 +512,33 @@ function setFollowUi(btn: HTMLButtonElement, on: boolean): void {
   btn.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
-/** Pick the chat line that matches current audio time (prefer dialogue over markers). */
+/**
+ * Priority when several rows cover the playhead:
+ * script barge bubble > barge marker > other script > natural dialogue > other markers
+ * (script inject audio is heard immediately; STT/agent finals lag).
+ */
+function activeRank(el: HTMLElement): number {
+  const origin = el.dataset.origin || "";
+  if (el.classList.contains("role-script-barge") || origin === "script_barge") {
+    return 0;
+  }
+  if (el.classList.contains("marker") && el.classList.contains("barge_in")) {
+    return 1;
+  }
+  if (el.classList.contains("role-script-cue") || origin === "script_cue") {
+    return 2;
+  }
+  if (!el.classList.contains("marker")) {
+    return 3; // natural Agent / Caller
+  }
+  return 4;
+}
+
+/** Pick the chat line that matches current audio time. */
 function findActiveIndex(els: HTMLElement[], tMs: number): number {
-  let bestDialogue = -1;
-  let bestDialogueSpan = Number.POSITIVE_INFINITY;
-  let bestMarker = -1;
-  let bestMarkerSpan = Number.POSITIVE_INFINITY;
+  let best = -1;
+  let bestRank = 99;
+  let bestSpan = Number.POSITIVE_INFINITY;
   let lastStarted = -1;
 
   for (let i = 0; i < els.length; i++) {
@@ -530,22 +551,16 @@ function findActiveIndex(els: HTMLElement[], tMs: number): number {
 
     if (tMs >= start && tMs < end) {
       const span = end - start;
-      const isMarker = els[i].classList.contains("marker");
-      if (isMarker) {
-        if (span < bestMarkerSpan) {
-          bestMarkerSpan = span;
-          bestMarker = i;
-        }
-      } else if (span < bestDialogueSpan) {
-        // Prefer tighter dialogue windows; stable last match on ties via < only.
-        bestDialogueSpan = span;
-        bestDialogue = i;
+      const rank = activeRank(els[i]);
+      if (rank < bestRank || (rank === bestRank && span < bestSpan)) {
+        bestRank = rank;
+        bestSpan = span;
+        best = i;
       }
     }
   }
 
-  if (bestDialogue >= 0) return bestDialogue;
-  if (bestMarker >= 0) return bestMarker;
+  if (best >= 0) return best;
   return lastStarted;
 }
 

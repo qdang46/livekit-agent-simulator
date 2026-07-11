@@ -88,6 +88,74 @@ def _clamp_end(start_ms: int, end_ms: int, duration_ms: int | None) -> int:
     return end
 
 
+def _collect_script_injects(
+    events: list[dict[str, Any]],
+    t0: int,
+    duration_ms: int | None,
+) -> list[dict[str, Any]]:
+    """room_pcm / barge injects with real play duration (audio is heard immediately)."""
+    out: list[dict[str, Any]] = []
+    for e in events:
+        if str(e.get("kind") or "") != "sim.script_inject":
+            continue
+        try:
+            mono = int(e.get("ts_mono_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        start = _mono_to_audio_ms(mono, t0, duration_ms)
+        if start is None:
+            continue
+        spec = e.get("spec") if isinstance(e.get("spec"), dict) else {}
+        try:
+            dur = int(spec.get("duration_ms") or 0)
+        except (TypeError, ValueError):
+            dur = 0
+        # gemini_text barge has no duration_ms — allow ~2s of audible speech
+        if dur <= 0:
+            delivery = str(spec.get("delivery") or "")
+            dur = 2200 if delivery != "room_pcm" else 800
+        out.append(
+            {
+                "start_ms": start,
+                "duration_ms": dur,
+                "end_ms": start + max(200, dur),
+                "label": str(spec.get("label") or ""),
+                "text": str(spec.get("text") or ""),
+                "delivery": str(spec.get("delivery") or ""),
+                "asset": spec.get("asset"),
+            }
+        )
+    return out
+
+
+def _inject_duration_near(
+    injects: list[dict[str, Any]],
+    at_ms: int,
+    *,
+    label: str = "",
+    say: str = "",
+) -> int | None:
+    best: int | None = None
+    best_d = 10_000
+    for inj in injects:
+        d = abs(int(inj["start_ms"]) - at_ms)
+        if d > 900:
+            continue
+        # Prefer same label / text when available
+        same = False
+        if label and inj.get("label") and (
+            label in str(inj["label"]) or str(inj["label"]) in label
+        ):
+            same = True
+        if say and inj.get("text") and _text_overlap(say, str(inj["text"])):
+            same = True
+        score_d = d - (200 if same else 0)
+        if score_d < best_d:
+            best_d = score_d
+            best = int(inj["duration_ms"])
+    return best
+
+
 def _build_markers(
     events: list[dict[str, Any]],
     t0: int,
@@ -96,6 +164,7 @@ def _build_markers(
     """Extract barge-in / silence / interruption / recovery markers aligned to audio."""
     markers: list[dict[str, Any]] = []
     barge_points: list[int] = []  # audio start_ms of barge-ins (for recovery)
+    injects = _collect_script_injects(events, t0, duration_ms)
 
     for e in events:
         kind = str(e.get("kind") or "")
@@ -124,11 +193,12 @@ def _build_markers(
                 detail_parts.append(f'say="{say}"')
             if waited:
                 detail_parts.append(f"waited={waited}ms")
-            # Barge-in: longer visible band so cut-in is easy to spot on the scrubber.
+            # Prefer real inject play length so scrubber/highlight match audible audio.
+            inj_dur = _inject_duration_near(injects, start, label=label, say=say)
             if barge:
-                span = 1200 if during else 700
+                span = max(2200 if during else 1400, (inj_dur or 0) + 400)
             else:
-                span = max(400, min(waited, 2000) or 400)
+                span = max(400, min(waited, 2000) or 400, (inj_dur or 0) + 200)
             end = _clamp_end(start, start + span, duration_ms)
             markers.append(
                 {
@@ -141,6 +211,7 @@ def _build_markers(
                     "say": say or None,
                     "during_agent_speech": during,
                     "barge_in": barge,
+                    "audio_ms": inj_dur or span,
                 }
             )
             if barge:
@@ -421,6 +492,22 @@ def _tag_cues_with_markers(
                 c["script_say"] = matched.get("say")
             if matched.get("label"):
                 c["script_label"] = matched.get("label")
+            # Pin window to inject time (when audio is heard), not STT final (lags).
+            inject_ms = int(matched.get("start_ms") or final_ms)
+            try:
+                audio_ms = int(matched.get("audio_ms") or 0)
+            except (TypeError, ValueError):
+                audio_ms = 0
+            if audio_ms <= 0:
+                audio_ms = 2200 if origin == "script_barge" else 900
+            # Start slightly before inject so "Now" lights as cut-in begins.
+            c["start_ms"] = max(0, inject_ms - 80)
+            c["end_ms"] = max(
+                final_ms + 500,
+                inject_ms + audio_ms + 350,
+                int(c.get("end_ms") or 0),
+            )
+            c["inject_ms"] = inject_ms
 
 
 def build_cues_payload(report_dir: Path) -> dict[str, Any]:
