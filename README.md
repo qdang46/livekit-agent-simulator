@@ -26,21 +26,59 @@ paths — use `execute_*` to validate then run.
 
 ## Install (user machine)
 
+Requires [uv](https://docs.astral.sh/uv/) (recommended) or [pipx](https://pipx.pypa.io/).
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh | bash
-# requires uv (or pipx). Then:
-lk-sim guide
-lk-sim web --root /path/to/target   # no Node required — player is prebuilt into the package
+# macOS / Linux
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
+
+# Windows PowerShell
+irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
 ```
+
+Then:
+
+```bash
+lk-sim guide
+lk-sim web --root /path/to/target   # no Node — report player is prebuilt into the package
+```
+
+Installer options (Unix):
+
+```bash
+# pin version (PyPI, with git fallback)
+curl -fsSL ".../install.sh" | bash -s -- --version v0.1.0 --verify
+
+# force git main + skip MCP auto-config
+curl -fsSL ".../install.sh" | bash -s -- --from-git main --no-mcp
+
+# uninstall tool + MCP registrations
+curl -fsSL ".../install.sh" | bash -s -- --uninstall
+```
+
+Windows: `.\install.ps1 -Version v0.1.0 -Verify`, `-FromGit`, `-NoMcp`, `-Uninstall`.
+
+By default the installer also registers the **MCP** server `livekit-agent-simulator`
+(`livekit-agent-simulator-mcp`) into common AI coding tools (Claude Code, Cursor, Cline,
+Windsurf, VS Code Copilot, Gemini CLI, Amazon Q, OpenCode, Codex, Warp when present).
 
 ### Report player (maintainers)
 
-Source: `web/` (Vite + TypeScript). Users never run this.
+Source: `web/` (Vite + TypeScript). **Users never run this** — release CI builds into
+`templates/report-player/` and ships it in the wheel.
 
 ```bash
 pnpm --dir web install
 pnpm --dir web build    # → templates/report-player/ (served by lk-sim web)
 pnpm --dir web dev      # HMR; proxy /api + /runs → lk-sim web on :8765
+```
+
+### Release (maintainers)
+
+```bash
+# after main is green:
+git tag v0.1.0 && git push origin main --tags
+# → GitHub Actions: pnpm build → pytest → uv build → optional PyPI → GitHub Release
 ```
 
 ## Quick start
@@ -56,7 +94,23 @@ lk-sim report <run-id> --root /path/to/target
 lk-sim web --root /path/to/target          # audio + transcript player (Ctrl+C to stop)
 ```
 
-## Cursor MCP config
+## MCP (after install)
+
+Installer writes the MCP command when tools are detected. Manual Cursor example:
+
+```json
+{
+  "mcpServers": {
+    "livekit-agent-simulator": {
+      "command": "livekit-agent-simulator-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+Dev checkout (package not installed globally):
 
 ```json
 {
@@ -68,6 +122,7 @@ lk-sim web --root /path/to/target          # audio + transcript player (Ctrl+C t
   }
 }
 ```
+
 
 ## Public ops (CLI ↔ MCP)
 
