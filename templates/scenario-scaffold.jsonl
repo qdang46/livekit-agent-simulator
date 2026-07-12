@@ -19,16 +19,19 @@
 // === Dispatch (optional) — opaque JSON string for RoomAgentDispatch.metadata ===
 {"kind":"Dispatch","spec":{"metadata":"{\"yourProjectKey\":\"replace-me\"}"}}
 // === Behavior (optional, Hamming policy) — compiles to Script if present ===
-// barge_ins[], user_silence[], ambient{asset,delay_ms}
+// barge_ins[], user_silence[], hang_ups[], ambient{asset,delay_ms}
 // Explicit Script below wins on same step id
 // {"kind":"Behavior","spec":{"barge_ins":[{"id":"cut1","after_agent_ms":800,"say":"Wait — one second","with_blip":true}],"ambient":{"asset":"builtin:noise.ambient","delay_ms":5000}}}
 // === Script (optional) — timed cues; omit if speech_conditions/Behavior enough ===
 // trigger: agent_speaking | silence | time
+// action: speak | wait | hang_up
 // barge_in + with_blip (default true for gemini_text)
 // asset: builtin:voice.barge_short | builtin:noise.loud | .agent-sim/cues/file.wav
 // speech_conditions.barge_asset: builtin:voice.barge_short (vocal; with_blip defaults off for voice.*)
 // {"kind":"Script","spec":{"steps":[],"verify":{"require_during_agent_speech":false,"min_agent_finals_after_barge_in":0}}}
-// === Assert — tools / transcript / outcomes (recovery | transcript_contains | llm_bool) ===
+// === Assert — tools / transcript / outcomes (recovery | latency | ended_by | transcript_contains | llm_bool) ===
+// latency example: {"id":"speed","type":"latency","max_turn_p95_ms":3500,"max_ttfw_ms":5000,"require_turn_samples":1}
+// ended_by example: {"id":"caller_hung_up","type":"ended_by","who":"sim"}
 {"kind":"Assert","spec":{"tools":[],"transcript":[{"role":"agent","contains_any":["help","support","hello","hi"]}],"outcomes":[{"id":"agent_spoke","type":"transcript_contains","role":"agent","phrases":["a","e","i","o","u"]}]}}
 // === PassCriteria (optional soft judge) ===
 {"kind":"PassCriteria","spec":{"criteria":["The agent responded to the caller","The agent responded in a language the caller can understand"]}}

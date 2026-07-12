@@ -72,6 +72,9 @@ def test_finalize_writes_artifacts_and_metrics(tmp_path):
     assert summary["tool_errors"] == 1
     assert summary["tool_calls"] == 1
     assert summary["turn_taking_ms"]["p50"] == 3100
+    assert "metrics" in summary
+    assert summary["metrics"]["turn_taking_ms"]["p50"] == 3100
+    assert summary["metrics"]["ttfw_ms"] is not None
     turn = summary["turns"][0]
     assert turn["user_text"] == "hello"
     assert turn["agent_text"] == "sorry, error"

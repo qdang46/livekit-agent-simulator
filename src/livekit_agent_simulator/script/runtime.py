@@ -117,6 +117,32 @@ class ScriptRunner:
                     else:
                         self.bridge.suppress_persona_output(hold_silence_ms)
                     await asyncio.sleep(hold_silence_ms / 1000.0)
+            elif step.action == "hang_up":
+                kind = "sim.script.hang_up"
+                # Optionally say something before hanging up
+                if step.say.strip():
+                    try:
+                        await self.bridge.inject_cue(
+                            step.say,
+                            label=step.label or step.id,
+                            delivery=step.delivery or "gemini_text",
+                            asset=step.asset,
+                            scenario_dir=self.scenario_dir,
+                        )
+                    except Exception as say_err:
+                        inject_error = f"{type(say_err).__name__}: {say_err}"
+                # Set sim-greeted-nudge style hold so script runner doesn't race
+                await asyncio.sleep(0.3)
+                # Mark caller disconnected by triggering end_call via bridge
+                self.bridge.sim_hang_up()
+                self.writer.emit(
+                    "sim.hang_up",
+                    spec={"step_id": step.id, "label": step.label or step.id, "say": step.say, "error": inject_error} if inject_error else
+                         {"step_id": step.id, "label": step.label or step.id, "say": step.say},
+                    source="sim.script",
+                    include_dialogue=False,
+                )
+                return
             else:
                 kind = "sim.script.cue"
                 try:

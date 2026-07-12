@@ -103,6 +103,11 @@ def build_suite_report(
         verdict = summary.get("verdict") if isinstance(summary.get("verdict"), dict) else {}
         av = summary.get("assert_verify") if isinstance(summary.get("assert_verify"), dict) else {}
         sv = summary.get("script_verify") if isinstance(summary.get("script_verify"), dict) else {}
+        from .metrics import metrics_digest
+
+        mdig = metrics_digest(
+            summary.get("metrics") if isinstance(summary.get("metrics"), dict) else None
+        )
         row = {
             "scenario_id": _scenario_id_of(r),
             "run_id": r.get("run_id") or summary.get("run_id"),
@@ -118,6 +123,12 @@ def build_suite_report(
             "judge_score": verdict.get("score"),
             "duration_ms": summary.get("duration_ms") or r.get("duration_ms"),
             "turn_count": summary.get("turn_count"),
+            "ttfw_ms": mdig.get("ttfw_ms"),
+            "turn_p50_ms": mdig.get("turn_p50_ms"),
+            "turn_p95_ms": mdig.get("turn_p95_ms"),
+            "recovery_p50_ms": mdig.get("recovery_p50_ms"),
+            "barge_count": mdig.get("barge_count"),
+            "barge_recovery_rate": mdig.get("barge_recovery_rate"),
             "report_dir": r.get("report_dir"),
             "error": r.get("error"),
         }
@@ -162,27 +173,36 @@ def suite_report_markdown(report: dict[str, Any]) -> str:
         f"hard fail: **{totals.get('failed_hard', 0)}** · soft judge fail: **{totals.get('failed_soft_judge', 0)}**",
         f"- suite ok (CI): **{report.get('ok')}** (exit {report.get('exit_code')})",
         "",
-        "| scenario | gate | status | assert | script | judge | duration | run_id |",
-        "|---|---|---|---|---|---|---|---|",
+        "| scenario | gate | status | assert | script | judge | p50 | p95 | ttfw | duration | run_id |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in report.get("matrix") or []:
         dur = row.get("duration_ms")
         dur_s = f"{dur / 1000:.1f}s" if isinstance(dur, (int, float)) else "—"
+
+        def _ms(v: object) -> str:
+            if isinstance(v, (int, float)):
+                return f"{int(v)}ms"
+            return "—"
+
         reasons = ",".join(row.get("hard_reasons") or []) or "—"
         lines.append(
-            "| {sid} | {gate} | {status} | {ap} | {sp} | {jv} | {dur} | `{rid}` |".format(
+            "| {sid} | {gate} | {status} | {ap} | {sp} | {jv} | {p50} | {p95} | {ttfw} | {dur} | `{rid}` |".format(
                 sid=row.get("scenario_id") or "?",
                 gate=row.get("gate") or "?",
                 status=row.get("status") or "?",
                 ap=row.get("assert_pass"),
                 sp=row.get("script_pass"),
                 jv=row.get("judge_verdict") or "—",
+                p50=_ms(row.get("turn_p50_ms")),
+                p95=_ms(row.get("turn_p95_ms")),
+                ttfw=_ms(row.get("ttfw_ms")),
                 dur=dur_s,
                 rid=row.get("run_id") or "—",
             )
         )
         if row.get("hard_reasons"):
-            lines.append(f"| ↳ hard | {reasons} | | | | | | |")
+            lines.append(f"| ↳ hard | {reasons} | | | | | | | | | |")
     lines.append("")
     return "\n".join(lines)
 

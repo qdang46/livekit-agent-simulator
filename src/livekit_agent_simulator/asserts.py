@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .metrics import compute_voice_metrics
+
 
 @dataclass(frozen=True)
 class ToolExpect:
@@ -34,16 +36,30 @@ class OutcomeExpect:
       - transcript_contains: any agent/user text matches phrases (contains_any)
       - llm_bool: deferred to judge layer (evaluated when judge runs)
       - recovery: agent re-engages after sim barge-in / interruption
+      - latency: hard gates on turn_taking / TTFW / recovery percentiles (P1.3)
+      - ended_by: assert which side ended the call (sim | agent | detect)
     """
 
     id: str
-    type: str  # transcript_contains | llm_bool | recovery
+    type: str  # transcript_contains | llm_bool | recovery | latency | ended_by
     phrases: tuple[str, ...] = ()
     prompt: str | None = None  # for llm_bool
     role: str = "any"
     min_agent_finals_after_barge_in: int = 1
     min_interruptions: int = 0
     max_ms_after_barge_to_agent_final: int | None = None
+    # latency thresholds (omit = do not check that dimension)
+    max_turn_p50_ms: int | None = None
+    max_turn_p95_ms: int | None = None
+    max_turn_p99_ms: int | None = None
+    max_turn_max_ms: int | None = None
+    max_ttfw_ms: int | None = None
+    max_recovery_p50_ms: int | None = None
+    max_recovery_p95_ms: int | None = None
+    min_barge_recovery_rate: float | None = None
+    require_turn_samples: int = 0
+    # ended_by: who must hang up first
+    ended_by: str | None = None  # "sim" | "agent"
 
 
 @dataclass
@@ -55,6 +71,18 @@ class AssertSpec:
     @property
     def empty(self) -> bool:
         return not (self.tools or self.transcript or self.outcomes)
+
+
+def _opt_int(raw: dict[str, Any], key: str) -> int | None:
+    if raw.get(key) is None:
+        return None
+    return int(raw[key])
+
+
+def _opt_float(raw: dict[str, Any], key: str) -> float | None:
+    if raw.get(key) is None:
+        return None
+    return float(raw[key])
 
 
 def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> AssertSpec:
@@ -96,12 +124,38 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
         if not isinstance(raw, dict) or not raw.get("id"):
             raise ValueError(f"{path_label}: outcomes[{i}] needs id")
         otype = str(raw.get("type", "transcript_contains"))
-        if otype not in ("transcript_contains", "llm_bool", "recovery"):
+        if otype not in ("transcript_contains", "llm_bool", "recovery", "latency", "ended_by"):
             raise ValueError(f"{path_label}: outcomes[{i}].type unsupported: {otype}")
         phrases = raw.get("phrases") or raw.get("contains_any") or []
         if isinstance(phrases, str):
             phrases = [phrases]
         max_ms = raw.get("max_ms_after_barge_to_agent_final")
+        if otype == "latency":
+            has_gate = any(
+                raw.get(k) is not None
+                for k in (
+                    "max_turn_p50_ms",
+                    "max_turn_p95_ms",
+                    "max_turn_p99_ms",
+                    "max_turn_max_ms",
+                    "max_ttfw_ms",
+                    "max_recovery_p50_ms",
+                    "max_recovery_p95_ms",
+                    "min_barge_recovery_rate",
+                )
+            )
+            if not has_gate:
+                raise ValueError(
+                    f"{path_label}: outcomes[{i}] latency needs at least one threshold "
+                    "(max_turn_p50_ms / max_turn_p95_ms / max_ttfw_ms / …)"
+                )
+        eb = None
+        if otype == "ended_by":
+            eb = str(raw.get("ended_by") or raw.get("who") or "detect")
+            if eb not in ("sim", "agent", "detect"):
+                raise ValueError(
+                    f"{path_label}: outcomes[{i}] ended_by must be 'sim' | 'agent' | 'detect'"
+                )
         outcomes.append(
             OutcomeExpect(
                 id=str(raw["id"]),
@@ -114,6 +168,16 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
                 ),
                 min_interruptions=int(raw.get("min_interruptions", 0)),
                 max_ms_after_barge_to_agent_final=int(max_ms) if max_ms is not None else None,
+                max_turn_p50_ms=_opt_int(raw, "max_turn_p50_ms"),
+                max_turn_p95_ms=_opt_int(raw, "max_turn_p95_ms"),
+                max_turn_p99_ms=_opt_int(raw, "max_turn_p99_ms"),
+                max_turn_max_ms=_opt_int(raw, "max_turn_max_ms"),
+                max_ttfw_ms=_opt_int(raw, "max_ttfw_ms"),
+                max_recovery_p50_ms=_opt_int(raw, "max_recovery_p50_ms"),
+                max_recovery_p95_ms=_opt_int(raw, "max_recovery_p95_ms"),
+                min_barge_recovery_rate=_opt_float(raw, "min_barge_recovery_rate"),
+                require_turn_samples=int(raw.get("require_turn_samples", 0) or 0),
+                ended_by=eb or (raw.get("ended_by") or raw.get("who")),
             )
         )
 
@@ -293,6 +357,10 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
                     "max_ms_after_barge_to_agent_final": oc.max_ms_after_barge_to_agent_final,
                 }
             )
+        elif oc.type == "latency":
+            checks.append(_eval_latency_outcome(oc, events))
+        elif oc.type == "ended_by":
+            checks.append(_eval_ended_by_outcome(oc, events))
         elif oc.type == "llm_bool":
             pending_llm.append({"id": oc.id, "prompt": oc.prompt or oc.id})
             checks.append(
@@ -312,3 +380,270 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
         "checks": checks,
         "pending_llm_outcomes": pending_llm,
     }
+
+def _eval_latency_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Hard gate on turn_taking / TTFW / recovery percentiles from event stream."""
+    m = compute_voice_metrics(events)
+    tt = m.get("turn_taking_ms") if isinstance(m.get("turn_taking_ms"), dict) else {}
+    rec = m.get("recovery_ms") if isinstance(m.get("recovery_ms"), dict) else {}
+    reasons: list[str] = []
+    ok = True
+
+    n_turns = int(tt.get("count") or 0)
+    if oc.require_turn_samples and n_turns < oc.require_turn_samples:
+        ok = False
+        reasons.append(
+            f"turn samples {n_turns} < require_turn_samples {oc.require_turn_samples}"
+        )
+
+    def _gate(actual: Any, limit: int | None, label: str) -> None:
+        nonlocal ok
+        if limit is None:
+            return
+        if actual is None:
+            ok = False
+            reasons.append(f"{label}: no sample (need measured value ≤ {limit}ms)")
+            return
+        try:
+            val = float(actual)
+        except (TypeError, ValueError):
+            ok = False
+            reasons.append(f"{label}: invalid actual {actual!r}")
+            return
+        if val > limit:
+            ok = False
+            reasons.append(f"{label} {val:.0f}ms > max {limit}ms")
+
+    _gate(tt.get("p50"), oc.max_turn_p50_ms, "turn_p50")
+    _gate(tt.get("p95"), oc.max_turn_p95_ms, "turn_p95")
+    _gate(tt.get("p99"), oc.max_turn_p99_ms, "turn_p99")
+    _gate(tt.get("max"), oc.max_turn_max_ms, "turn_max")
+    _gate(m.get("ttfw_ms"), oc.max_ttfw_ms, "ttfw")
+    _gate(rec.get("p50"), oc.max_recovery_p50_ms, "recovery_p50")
+    _gate(rec.get("p95"), oc.max_recovery_p95_ms, "recovery_p95")
+
+    if oc.min_barge_recovery_rate is not None:
+        rate = m.get("barge_recovery_rate")
+        barges = int(m.get("barge_count") or 0)
+        if barges == 0:
+            ok = False
+            reasons.append(
+                f"barge_recovery_rate: no barges fired "
+                f"(need rate >= {oc.min_barge_recovery_rate})"
+            )
+        elif rate is None or float(rate) < float(oc.min_barge_recovery_rate):
+            ok = False
+            reasons.append(
+                f"barge_recovery_rate {rate} < min {oc.min_barge_recovery_rate}"
+            )
+
+    return {
+        "check": f"outcome:{oc.id}",
+        "pass": ok,
+        "type": "latency",
+        "reasons": reasons,
+        "actual": {
+            "turn_p50_ms": tt.get("p50"),
+            "turn_p95_ms": tt.get("p95"),
+            "turn_p99_ms": tt.get("p99"),
+            "turn_max_ms": tt.get("max"),
+            "turn_count": n_turns,
+            "ttfw_ms": m.get("ttfw_ms"),
+            "recovery_p50_ms": rec.get("p50"),
+            "recovery_p95_ms": rec.get("p95"),
+            "barge_count": m.get("barge_count"),
+            "barge_recovery_rate": m.get("barge_recovery_rate"),
+        },
+        "limits": {
+            "max_turn_p50_ms": oc.max_turn_p50_ms,
+            "max_turn_p95_ms": oc.max_turn_p95_ms,
+            "max_turn_p99_ms": oc.max_turn_p99_ms,
+            "max_turn_max_ms": oc.max_turn_max_ms,
+            "max_ttfw_ms": oc.max_ttfw_ms,
+            "max_recovery_p50_ms": oc.max_recovery_p50_ms,
+            "max_recovery_p95_ms": oc.max_recovery_p95_ms,
+            "min_barge_recovery_rate": oc.min_barge_recovery_rate,
+            "require_turn_samples": oc.require_turn_samples or None,
+        },
+    }
+
+
+def _eval_ended_by_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Assert that the call ended by the expected side (sim | agent | detect)."""
+    sim_hangup = [e for e in events if e.get("kind") in ("sim.hang_up", "sim.script.hang_up")]
+    end_cond = [e for e in events if e.get("kind") == "run.end_condition"]
+
+    who = "detect"
+    reason_parts: list[str] = []
+
+    if sim_hangup:
+        who = "sim"
+        reason_parts.append("sim_hang_up event (via script)")
+    elif end_cond:
+        er = end_cond[-1].get("spec", {}).get("reason", "")
+        er_s = str(er) if er else ""
+        if "sim_end_call" in er_s:
+            who = "sim"
+            reason_parts.append(f"end_reason: {er_s}")
+        elif er_s in ("agent_disconnected", "dead_call_silence"):
+            who = "agent"
+            reason_parts.append(f"end_reason: {er_s}")
+        elif er_s in ("max_turns", "timeout"):
+            reason_parts.append(f"end_reason: {er_s} (no hang-up side)")
+    else:
+        for e in events:
+            if e.get("kind") == "sim.end_call_token":
+                who = "sim"
+                reason_parts.append("sim end_call_token")
+                break
+
+    ok = True
+    reasons: list[str] = []
+    if oc.ended_by is not None and oc.ended_by != "detect":
+        if who != oc.ended_by:
+            ok = False
+            reasons.append(f"expected ended_by={oc.ended_by}, detected={who}")
+
+    return {
+        "check": f"outcome:{oc.id}",
+        "pass": ok,
+        "type": "ended_by",
+        "expected": oc.ended_by,
+        "actual": who,
+        "reasons": reasons,
+        "details": ", ".join(reason_parts) if reason_parts else None,
+    }
+
+def _eval_latency_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Hard gate on turn_taking / TTFW / recovery percentiles from event stream."""
+    m = compute_voice_metrics(events)
+    tt = m.get("turn_taking_ms") if isinstance(m.get("turn_taking_ms"), dict) else {}
+    rec = m.get("recovery_ms") if isinstance(m.get("recovery_ms"), dict) else {}
+    reasons: list[str] = []
+    ok = True
+
+    n_turns = int(tt.get("count") or 0)
+    if oc.require_turn_samples and n_turns < oc.require_turn_samples:
+        ok = False
+        reasons.append(
+            f"turn samples {n_turns} < require_turn_samples {oc.require_turn_samples}"
+        )
+
+    def _gate(actual: Any, limit: int | None, label: str) -> None:
+        nonlocal ok
+        if limit is None:
+            return
+        if actual is None:
+            ok = False
+            reasons.append(f"{label}: no sample (need measured value ≤ {limit}ms)")
+            return
+        try:
+            val = float(actual)
+        except (TypeError, ValueError):
+            ok = False
+            reasons.append(f"{label}: invalid actual {actual!r}")
+            return
+        if val > limit:
+            ok = False
+            reasons.append(f"{label} {val:.0f}ms > max {limit}ms")
+
+    _gate(tt.get("p50"), oc.max_turn_p50_ms, "turn_p50")
+    _gate(tt.get("p95"), oc.max_turn_p95_ms, "turn_p95")
+    _gate(tt.get("p99"), oc.max_turn_p99_ms, "turn_p99")
+    _gate(tt.get("max"), oc.max_turn_max_ms, "turn_max")
+    _gate(m.get("ttfw_ms"), oc.max_ttfw_ms, "ttfw")
+    _gate(rec.get("p50"), oc.max_recovery_p50_ms, "recovery_p50")
+    _gate(rec.get("p95"), oc.max_recovery_p95_ms, "recovery_p95")
+
+    if oc.min_barge_recovery_rate is not None:
+        rate = m.get("barge_recovery_rate")
+        barges = int(m.get("barge_count") or 0)
+        if barges == 0:
+            ok = False
+            reasons.append(
+                f"barge_recovery_rate: no barges fired "
+                f"(need rate >= {oc.min_barge_recovery_rate})"
+            )
+        elif rate is None or float(rate) < float(oc.min_barge_recovery_rate):
+            ok = False
+            reasons.append(
+                f"barge_recovery_rate {rate} < min {oc.min_barge_recovery_rate}"
+            )
+
+    return {
+        "check": f"outcome:{oc.id}",
+        "pass": ok,
+        "type": "latency",
+        "reasons": reasons,
+        "actual": {
+            "turn_p50_ms": tt.get("p50"),
+            "turn_p95_ms": tt.get("p95"),
+            "turn_p99_ms": tt.get("p99"),
+            "turn_max_ms": tt.get("max"),
+            "turn_count": n_turns,
+            "ttfw_ms": m.get("ttfw_ms"),
+            "recovery_p50_ms": rec.get("p50"),
+            "recovery_p95_ms": rec.get("p95"),
+            "barge_count": m.get("barge_count"),
+            "barge_recovery_rate": m.get("barge_recovery_rate"),
+        },
+        "limits": {
+            "max_turn_p50_ms": oc.max_turn_p50_ms,
+            "max_turn_p95_ms": oc.max_turn_p95_ms,
+            "max_turn_p99_ms": oc.max_turn_p99_ms,
+            "max_turn_max_ms": oc.max_turn_max_ms,
+            "max_ttfw_ms": oc.max_ttfw_ms,
+            "max_recovery_p50_ms": oc.max_recovery_p50_ms,
+            "max_recovery_p95_ms": oc.max_recovery_p95_ms,
+            "min_barge_recovery_rate": oc.min_barge_recovery_rate,
+            "require_turn_samples": oc.require_turn_samples or None,
+        },
+    }
+
+
+def _eval_ended_by_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Assert that the call ended by the expected side (sim | agent | detect)."""
+    sim_hangup = [e for e in events if e.get("kind") in ("sim.hang_up", "sim.script.hang_up")]
+    end_cond = [e for e in events if e.get("kind") == "run.end_condition"]
+
+    who = "detect"
+    reason_parts: list[str] = []
+
+    if sim_hangup:
+        who = "sim"
+        reason_parts.append("sim_hang_up event (via script)")
+    elif end_cond:
+        er = end_cond[-1].get("spec", {}).get("reason", "")
+        er_s = str(er) if er else ""
+        if "sim_end_call" in er_s:
+            who = "sim"
+            reason_parts.append(f"end_reason: {er_s}")
+        elif er_s in ("agent_disconnected", "dead_call_silence"):
+            who = "agent"
+            reason_parts.append(f"end_reason: {er_s}")
+        elif er_s in ("max_turns", "timeout"):
+            reason_parts.append(f"end_reason: {er_s} (no hang-up side)")
+    else:
+        for e in events:
+            if e.get("kind") == "sim.end_call_token":
+                who = "sim"
+                reason_parts.append("sim end_call_token")
+                break
+
+    ok = True
+    reasons: list[str] = []
+    if oc.ended_by is not None and oc.ended_by != "detect":
+        if who != oc.ended_by:
+            ok = False
+            reasons.append(f"expected ended_by={oc.ended_by}, detected={who}")
+
+    return {
+        "check": f"outcome:{oc.id}",
+        "pass": ok,
+        "type": "ended_by",
+        "expected": oc.ended_by,
+        "actual": who,
+        "reasons": reasons,
+        "details": ", ".join(reason_parts) if reason_parts else None,
+    }
+

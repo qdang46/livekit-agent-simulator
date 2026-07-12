@@ -96,9 +96,18 @@ def init_scenario(project_root: str, scenario_id: str, force: bool = False) -> d
 
 
 @mcp.tool
-async def execute_scenario(project_root: str, scenario_id: str) -> dict[str, Any]:
-    """Validate then execute one scenario from `.agent-sim/scenarios/*.jsonl`."""
-    return await ops.execute_scenario(project_root, scenario_id)
+async def execute_scenario(
+    project_root: str,
+    scenario_id: str,
+    repeat: int = 1,
+    pass_at_k: int | None = None,
+) -> dict[str, Any]:
+    """Validate then execute one scenario from `.agent-sim/scenarios/*.jsonl`.
+
+    ``repeat`` / ``pass_at_k``: flake control — run N times, require ≥ K hard-pass
+    iterations (default K = N). Example: repeat=5, pass_at_k=3.
+    """
+    return await ops.execute_scenario(project_root, scenario_id, repeat=repeat, pass_at_k=pass_at_k)
 
 
 @mcp.tool
@@ -108,14 +117,21 @@ async def execute_scenarios(
     tag: str | None = None,
     strict_judge: bool = False,
     write_report: bool = True,
+    repeat: int = 1,
+    pass_at_k: int | None = None,
 ) -> dict[str, Any]:
-    """Execute multiple scenarios; returns suite matrix + CI gate (hard: assert/script/status)."""
+    """Execute multiple scenarios; returns suite matrix + CI gate (hard: assert/script/status).
+
+    ``repeat`` / ``pass_at_k`` propagate to each scenario for flake control.
+    """
     return await ops.execute_scenarios(
         project_root,
         scenario_ids=scenario_ids,
         tag=tag,
         strict_judge=strict_judge,
         write_report=write_report,
+        repeat=repeat,
+        pass_at_k=pass_at_k,
     )
 
 
@@ -123,6 +139,24 @@ async def execute_scenarios(
 async def execute_scenario_dict(project_root: str, scenario: dict[str, Any]) -> dict[str, Any]:
     """Validate then run an in-memory scenario dict (no JSONL file). Same fields as export_scenario."""
     return await ops.execute_scenario_dict(project_root, scenario)
+
+
+@mcp.tool
+async def scenario_from_run(
+    project_root: str,
+    run_id: str,
+    scenario_id: str | None = None,
+    write: bool = False,
+) -> dict[str, Any]:
+    """Promote a finished run into a draft scenario JSONL (fail → golden).
+
+    Dry-run by default; use write=True to write the draft .jsonl
+    under .agent-sim/scenarios/. Returns the scenario_id, jsonl text,
+    warnings, and stats.
+    """
+    return ops.scenario_from_run(
+        project_root, run_id, scenario_id=scenario_id, write=write
+    )
 
 
 @mcp.tool

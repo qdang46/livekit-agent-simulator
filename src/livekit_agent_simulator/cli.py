@@ -210,9 +210,21 @@ def execute(
         "--strict-judge",
         help="Also fail CI exit if LLM PassCriteria judge verdict is fail",
     ),
+    repeat: int = typer.Option(
+        1,
+        "--repeat",
+        "-n",
+        help="Run scenario N times for flake control (pass@k)",
+    ),
+    pass_at_k: Optional[int] = typer.Option(
+        None,
+        "--pass-at-k",
+        "-k",
+        help="Minimum hard-pass iterations (default = repeat). Example: --repeat 5 --pass-at-k 3",
+    ),
 ) -> None:
     """Validate then execute one scenario from .agent-sim/scenarios/. (MCP: execute_scenario)"""
-    result = _run(ops.execute_scenario(_root(root), scenario_id))
+    result = _run(ops.execute_scenario(_root(root), scenario_id, repeat=repeat, pass_at_k=pass_at_k))
     from .suite import evaluate_run_result
 
     gate = evaluate_run_result(result, strict_judge=strict_judge)
@@ -239,6 +251,18 @@ def execute_all_cmd(
         "--no-report",
         help="Do not write suite-*.json/md under .agent-sim/reports/",
     ),
+    repeat: int = typer.Option(
+        1,
+        "--repeat",
+        "-n",
+        help="Repeat each scenario N times for flake control (pass@k)",
+    ),
+    pass_at_k: Optional[int] = typer.Option(
+        None,
+        "--pass-at-k",
+        "-k",
+        help="Minimum hard-pass iterations per scenario (default = repeat)",
+    ),
     root: Optional[Path] = ROOT_OPTION,
 ) -> None:
     """Execute multiple scenarios; print suite matrix + CI gate. (MCP: execute_scenarios)"""
@@ -249,6 +273,8 @@ def execute_all_cmd(
             tag=tag,
             strict_judge=strict_judge,
             write_report=not no_report,
+            repeat=repeat,
+            pass_at_k=pass_at_k,
         )
     )
     _print(result)
@@ -342,6 +368,30 @@ def runs(
 ) -> None:
     """Run history, newest first. (MCP: list_runs)"""
     _print(_run(ops.list_runs(_root(root), limit=limit, scenario_id=scenario_id)))
+
+
+@app.command("scenario-from-run")
+def scenario_from_run_cmd(
+    run_id: str = typer.Argument(..., help="Run ID to promote"),
+    scenario_id: Optional[str] = typer.Option(
+        None,
+        "--id",
+        help="Override draft scenario id (default: auto from source)")
+        ,
+    write: bool = typer.Option(
+        False,
+        "--write",
+        "-w",
+        help="Write draft .jsonl to .agent-sim/scenarios/",
+    ),
+    root: Optional[Path] = ROOT_OPTION,
+) -> None:
+    """Promote a finished run into a draft scenario JSONL (fail → golden). (MCP: scenario_from_run)"""
+    try:
+        _print(ops.scenario_from_run(_root(root), run_id, scenario_id=scenario_id, write=write))
+    except (ConfigError, FileNotFoundError) as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
 
 
 @app.command("mcp")

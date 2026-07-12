@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 SUPPORTED_TRIGGERS = frozenset({"agent_speaking", "silence", "time"})
-SUPPORTED_ACTIONS = frozenset({"speak", "wait"})
+SUPPORTED_ACTIONS = frozenset({"speak", "wait", "hang_up"})
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class ScriptStep:
     delivery: str = "gemini_text"  # gemini_text | room_pcm
     asset: str | None = None
     silence_after_cue_ms: int = 0
-    action: str = "speak"  # speak | wait
+    action: str = "speak"  # speak | wait | hang_up
     # For silence trigger: only start counting idle after agent has spoken once.
     require_agent_spoke_first: bool = True
     barge_in: bool = False

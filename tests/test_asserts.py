@@ -128,3 +128,174 @@ def test_outcome_transcript_contains():
         ),
     )
     assert result["pass"] is True
+
+
+def test_parse_latency_outcome():
+    spec = parse_assert_spec(
+        {
+            "outcomes": [
+                {
+                    "id": "speed",
+                    "type": "latency",
+                    "max_turn_p95_ms": 3500,
+                    "max_ttfw_ms": 5000,
+                    "require_turn_samples": 1,
+                }
+            ]
+        }
+    )
+    assert spec.outcomes[0].type == "latency"
+    assert spec.outcomes[0].max_turn_p95_ms == 3500
+    assert spec.outcomes[0].max_ttfw_ms == 5000
+
+
+def test_parse_latency_requires_threshold():
+    try:
+        parse_assert_spec({"outcomes": [{"id": "empty", "type": "latency"}]})
+        raise AssertionError("expected ValueError")
+    except ValueError as e:
+        assert "threshold" in str(e).lower() or "latency" in str(e).lower()
+
+
+def test_outcome_latency_pass_and_fail():
+    events = [
+        {
+            "kind": "transcript.agent.final",
+            "ts_mono_ms": 500,
+            "spec": {"text": "hi", "turn_taking_ms": 800},
+        },
+        {
+            "kind": "transcript.agent.final",
+            "ts_mono_ms": 2000,
+            "spec": {"text": "ok", "turn_taking_ms": 1200},
+        },
+    ]
+    ok = evaluate_asserts(
+        events,
+        AssertSpec(
+            outcomes=[
+                OutcomeExpect(
+                    id="speed",
+                    type="latency",
+                    max_turn_p95_ms=2000,
+                    max_ttfw_ms=1000,
+                    require_turn_samples=1,
+                )
+            ]
+        ),
+    )
+    assert ok["pass"] is True, ok
+    lat_check = [c for c in ok["checks"] if c.get("type") == "latency"][0]
+    assert lat_check["actual"]["turn_p95_ms"] is not None
+
+    bad = evaluate_asserts(
+        events,
+        AssertSpec(
+            outcomes=[
+                OutcomeExpect(
+                    id="speed",
+                    type="latency",
+                    max_turn_p95_ms=500,  # too tight
+                )
+            ]
+        ),
+    )
+    assert bad["pass"] is False
+    reasons = [c for c in bad["checks"] if c.get("type") == "latency"][0]["reasons"]
+    assert any("turn_p95" in r for r in reasons)
+
+
+def test_outcome_latency_barge_recovery_rate():
+    events = [
+        {"kind": "sim.script.cue", "ts_mono_ms": 1000, "spec": {"barge_in": True}},
+        {"kind": "transcript.agent.final", "ts_mono_ms": 2000, "spec": {"text": "ok"}},
+    ]
+    ok = evaluate_asserts(
+        events,
+        AssertSpec(
+            outcomes=[
+                OutcomeExpect(
+                    id="rec_rate",
+                    type="latency",
+                    min_barge_recovery_rate=0.9,
+                )
+            ]
+        ),
+    )
+    assert ok["pass"] is True
+
+    no_barge = evaluate_asserts(
+        [{"kind": "transcript.agent.final", "ts_mono_ms": 100, "spec": {"text": "x"}}],
+        AssertSpec(
+            outcomes=[
+                OutcomeExpect(
+                    id="rec_rate",
+                    type="latency",
+                    min_barge_recovery_rate=0.9,
+                )
+            ]
+        ),
+    )
+    assert no_barge["pass"] is False
+
+
+def test_parse_ended_by_outcome():
+    spec = parse_assert_spec(
+        {
+            "outcomes": [
+                {"id": "caller_hung", "type": "ended_by", "who": "sim"},
+                {"id": "detect_only", "type": "ended_by", "ended_by": "detect"},
+            ]
+        }
+    )
+    assert spec.outcomes[0].type == "ended_by"
+    assert spec.outcomes[0].ended_by == "sim"
+    assert spec.outcomes[1].ended_by == "detect"
+
+
+def test_parse_ended_by_invalid():
+    try:
+        parse_assert_spec({"outcomes": [{"id": "bad", "type": "ended_by", "ended_by": "robot"}]})
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "ended_by" in str(e).lower()
+
+
+def test_outcome_ended_by_sim_hang():
+    events = [
+        {"kind": "sim.hang_up", "spec": {"by": "sim", "source": "script"}},
+    ]
+    ok = evaluate_asserts(
+        events,
+        AssertSpec(
+            outcomes=[OutcomeExpect(id="h", type="ended_by", ended_by="sim")]
+        ),
+    )
+    assert ok["pass"] is True
+    # detect mode also passes
+    ok2 = evaluate_asserts(
+        events,
+        AssertSpec(outcomes=[OutcomeExpect(id="h", type="ended_by", ended_by="detect")]),
+    )
+    assert ok2["pass"] is True
+
+
+def test_outcome_ended_by_agent():
+    events = [
+        {"kind": "run.end_condition", "spec": {"reason": "agent_disconnected"}},
+    ]
+    ok = evaluate_asserts(
+        events,
+        AssertSpec(
+            outcomes=[OutcomeExpect(id="ag", type="ended_by", ended_by="agent")]
+        ),
+    )
+    assert ok["pass"] is True
+    fail = evaluate_asserts(
+        events,
+        AssertSpec(
+            outcomes=[OutcomeExpect(id="ag", type="ended_by", ended_by="sim")]
+        ),
+    )
+    assert fail["pass"] is False
+

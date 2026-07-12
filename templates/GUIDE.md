@@ -17,8 +17,18 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 3. `init` on the target repo → fill credentials in `.agent-sim/config.yaml`.
 4. `preflight` until `ok: true`.
 5. `scenario-init <id>` → edit the JSONL (`//` lines are guides; delete unused kinds).
-6. `validate <id>` then `execute <id>`.
+6. `validate <id>` then `execute <id>` (add ``--repeat N --pass-at-k K`` for flake control).
 7. `report <run-id>` and/or **`web`** (browser: play audio + highlight transcript).
+8. If a run fails, promote it to a permanent test: ``scenario-from-run <run-id> --write``, review, add to suite.
+
+```bash
+# Install once (optional):
+# curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
+# From anywhere; point --root at the target repo under test
+lk-sim guide
+lk-sim init --root /path/to/target
+# edit /path/to/target/.agent-sim/config.yaml
+lk-sim preflight --root /path/to/target
 
 ```bash
 # Install once (optional):
@@ -88,9 +98,10 @@ lk-sim scenario-init my-case --root /path/to/target
 | `Simulator` | no | Defaults; overridden by Execute |
 | `Execute` | recommended | `max_turns`, `timeout_s`, `first_speaker` |
 | `Dispatch` | no | Per-scenario opaque metadata JSON string |
-| `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`) |
-| `Script` | no | Timed cues (wins over Behavior on same step `id`) |
-| `Assert` | no | tools / transcript / outcomes (`transcript_contains`, **`recovery`**, `llm_bool`) |
+| `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`, `hang_ups`) |
+| `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
+| `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
+| `Assert` | no | tools / transcript / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, `llm_bool`) |
 | `Plugins` | no | Verify plugins only |
 | `PassCriteria` | no | Soft LLM judge rubric |
 
@@ -100,7 +111,13 @@ lk-sim scenario-init my-case --root /path/to/target
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
   - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
 - **Behavior** kind → explicit barge/silence/ambient policies  
-- **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)  
+- **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)
+- **Assert** `outcomes` type **`latency`** → hard CI gates on turn p50/p95, TTFW, recovery percentiles, barge recovery rate
+  - Example: `{"id":"speed","type":"latency","max_turn_p95_ms":3500,"max_ttfw_ms":5000,"require_turn_samples":1}`
+- **Assert** `outcomes` type **`ended_by`** → assert which side ended the call (`sim` / `agent` / `detect`)
+  - Example: `{"id":"caller_hung_up","type":"ended_by","who":"sim"}`
+- **Script action `hang_up`** → sim caller disconnects from room (cúp máy thật)
+  - Example: `{"id":"hangup","action":"hang_up","trigger":"time","delay_ms":5000,"say":"Thôi em cúp đây"}`  
 - See `docs/caller-pattern-plan.md` and `templates/examples/character-impatient.jsonl`  
 
 ### Audio cues (built-in + per-repo custom)
@@ -125,9 +142,35 @@ WAV: **PCM16 mono @ 24 kHz**. Prefer `voice.*` for audible barge-in; noise for b
 ```bash
 lk-sim validate my-case --root /path/to/target
 lk-sim execute my-case --root /path/to/target
+lk-sim execute my-case --repeat 5 --pass-at-k 3   # pass@k flake control
 lk-sim execute-all --tag smoke --root /path/to/target
+lk-sim execute-all --tag smoke --repeat 3 --pass-at-k 2   # flake in batch
 # In-memory (CI / agents): MCP execute_scenario_dict or CLI execute-dict -f file.json
 ```
+
+**Flake control (pass@k):** run the same scenario N times; CI gate (hard: status / assert / script)
+passes only if ≥ K iterations are green. Judge verdicts remain soft unless ``--strict-judge``.
+Useful for barge / latency / noise scenarios where Gemini behavior varies.
+
+```bash
+lk-sim execute my-barge-case --repeat 7 --pass-at-k 5 --root /path/to/target
+```
+
+### Promote a failed run to a permanent test (fail → golden)
+
+```bash
+lk-sim scenario-from-run <run-id> --root /path/to/target
+# dry-run: prints draft JSONL. Review Persona + Assert.
+lk-sim scenario-from-run <run-id> --root /path/to/target --write
+# writes .agent-sim/scenarios/from-<source>-<id>.jsonl
+# Then edit, validate, add to execute-all
+lk-sim validate from-my-source-xxxx --root /path/to/target
+```
+
+The draft recovers Persona, Dispatch, Execute spec, and run stats from the source report.
+It adds a basic transcript Assert + recovery Assert (when barges present).
+``Context.notes`` carries the source run_id, judge info, and metric hints.
+**Review before promoting** — the draft is a starting point, not a golden assertion.
 
 `first_speaker`:
 
@@ -150,9 +193,10 @@ lk-sim execute-all --tag smoke --root /path/to/target
 | `validate` | `validate_scenario` |
 | `export` | `export_scenario` |
 | `scenario-init` | `init_scenario` |
-| `execute` | `execute_scenario` |
-| `execute-all` | `execute_scenarios` (suite matrix + CI gate) |
+| `execute` | `execute_scenario` (flags: ``--repeat N --pass-at-k K``) |
+| `execute-all` | `execute_scenarios` (suite matrix + CI gate; flags: ``--repeat --pass-at-k``) |
 | `execute-dict` | `execute_scenario_dict` |
+| `scenario-from-run` | `scenario_from_run` |
 | `status` | `get_run_status` |
 | `log` | `get_run_log` |
 | `report` | `get_run_report` |
@@ -187,7 +231,7 @@ Directory: `.agent-sim/reports/<run-id>/`
 |------|----------|
 | `events.jsonl` | Canonical event stream |
 | `timeline.md` | Human narrative table |
-| `summary.json` | Duration, turns, judge, **`caller.behavior_summary`** (barges / silences / `recovery_ms`), `script_verify`, `assert_verify` |
+| `summary.json` | Duration, turns, **`metrics`** (TTFW / turn p50-p99 / recovery / barge rate / talk_ratio), judge, **`caller.behavior_summary`**, `script_verify`, `assert_verify` |
 | `meta.json` | Scenario, room, config snapshot (no secrets) |
 | `conversation.wav` | Stereo PCM if `observe.record_audio: true` |
 | `cues.json` | Built on demand by `web` for transcript↔audio sync + markers |
@@ -218,6 +262,8 @@ No Node/Vite on the user machine. Player assets ship inside the package.
 | Judge skipped | Need `PassCriteria` **and** `judge:` block in config |
 | No `conversation.wav` | Set `observe.record_audio: true` |
 | Scenario JSON error | Remove `#` comments; only full-line `//` allowed |
+| scenario-from-run draft says "DRAFT — review" | The draft is a starting point; tighten Persona/Assert before promoting to CI |
+| pass@k flake | Increase ``--repeat`` or relax ``--pass-at-k``; single-shot runs are not statistically conclusive |
 
 ---
 

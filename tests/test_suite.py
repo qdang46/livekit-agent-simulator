@@ -23,6 +23,13 @@ def _ok_result(**overrides: object) -> dict:
             "assert_verify": {"pass": True, "skipped": False},
             "script_verify": {"pass": True},
             "verdict": {"verdict": "pass", "score": 100},
+            "metrics": {
+                "ttfw_ms": 400,
+                "turn_taking_ms": {"p50": 800, "p95": 1200, "count": 2},
+                "recovery_ms": {"p50": 500, "count": 1},
+                "barge_count": 1,
+                "barge_recovery_rate": 1.0,
+            },
         },
     }
     base.update(overrides)
@@ -102,3 +109,8 @@ def test_suite_matrix(tmp_path: Path) -> None:
     md = suite_report_markdown(report)
     assert "Suite report" in md
     assert "bad-case" in md or "smoke-hello" in md
+    assert "ttfw" in md.lower() or "p50" in md
+    # matrix carries metric columns
+    row0 = report["matrix"][0]
+    assert row0.get("turn_p50_ms") == 800
+    assert row0.get("ttfw_ms") == 400

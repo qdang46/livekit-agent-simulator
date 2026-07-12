@@ -7,7 +7,7 @@ dialogue snapshot (what user/agent said so far this turn), and a kind-specific s
 Artifacts written under reports/<run-id>/:
     events.jsonl      append-only, one envelope per line (flushed on every emit)
     timeline.md       human-readable narrative table (written at finalize)
-    summary.json      aggregates: duration, turns, P50/P95 turn-taking, tool errors, verdict
+    summary.json      aggregates: duration, turns, metrics (TTFW/p50/p95/recovery), tool errors, verdict
     meta.json         run metadata: scenario, room, agent_name, config snapshot
     conversation.wav  local stereo PCM when observe.record_audio is true (L=sim, R=agent)
 """
@@ -131,12 +131,16 @@ class EventWriter:
         verdict: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Compute metrics, emit run.ended, write timeline/summary/meta. Returns summary."""
+        from ..metrics import compute_voice_metrics
+
         turns = self.turn_metrics()
         turn_taking = [t["turn_taking_ms"] for t in turns if t.get("turn_taking_ms") is not None]
         tool_errors = sum(1 for e in self._events if e["kind"] == "tool.error")
         tool_calls = sum(1 for e in self._events if e["kind"] == "tool.start")
         interruptions = sum(1 for e in self._events if e["kind"] == "interruption")
         silences = sum(1 for e in self._events if e["kind"] == "silence.detected")
+        voice_metrics = compute_voice_metrics(self._events)
+        tt_block = voice_metrics.get("turn_taking_ms") or {}
 
         summary: dict[str, Any] = {
             "run_id": self.run_id,
@@ -144,11 +148,15 @@ class EventWriter:
             "duration_ms": int((time.monotonic() - self._t0_mono) * 1000),
             "turn_count": max((e["turn"] for e in self._events), default=0),
             "event_count": self._seq + 1,  # + the run.ended emitted below
+            # Backward-compatible top-level percentiles (full pack under metrics)
             "turn_taking_ms": {
-                "p50": _percentile(turn_taking, 50),
-                "p95": _percentile(turn_taking, 95),
-                "max": max(turn_taking) if turn_taking else None,
+                "p50": tt_block.get("p50", _percentile(turn_taking, 50)),
+                "p95": tt_block.get("p95", _percentile(turn_taking, 95)),
+                "p99": tt_block.get("p99"),
+                "max": tt_block.get("max", max(turn_taking) if turn_taking else None),
+                "count": tt_block.get("count", len(turn_taking)),
             },
+            "metrics": voice_metrics,
             "tool_calls": tool_calls,
             "tool_errors": tool_errors,
             "interruptions": interruptions,

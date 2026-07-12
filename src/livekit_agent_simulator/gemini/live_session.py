@@ -170,6 +170,16 @@ class GeminiCallerBridge:
         if self._mixer is not None:
             self._mixer.stop()
 
+    def sim_hang_up(self) -> None:
+        """Called by ScriptRunner action=hang_up : hard disconnect from the room."""
+        self.writer.emit(
+            "sim.hang_up",
+            spec={"source": "script", "by": "sim"},
+            source="sim",
+            include_dialogue=False,
+        )
+        self.end_call.set()
+
     def suppress_persona_output(self, duration_ms: int) -> None:
         """Block Gemini audio/text to the room after a scripted PCM cue (caller silence)."""
         if duration_ms <= 0:

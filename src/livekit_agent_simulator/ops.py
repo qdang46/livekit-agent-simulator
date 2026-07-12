@@ -4,7 +4,7 @@ Public ops (both surfaces expose these, same semantics):
 
     init_project, preflight, guide, web,
     list_scenarios, list_plugins, list_cues, validate_scenario, export_scenario, init_scenario,
-    execute_scenario, execute_scenarios, execute_scenario_dict,
+    execute_scenario, execute_scenarios, execute_scenario_dict, scenario_from_run,
     get_run_status, get_run_log, get_run_report, compare_runs, list_runs
     # execute_scenarios also returns suite matrix + CI gate (see suite.py)
 
@@ -293,13 +293,92 @@ async def execute_scenario_dict(project_root: Path | str, scenario: dict[str, An
     return {"executed": True, "validation": {"valid": True}, **result}
 
 
-async def execute_scenario(project_root: Path | str, scenario_id: str) -> dict[str, Any]:
-    """Validate then run one scenario from `.agent-sim/scenarios/<id>.jsonl`."""
+async def execute_scenario(
+    project_root: Path | str,
+    scenario_id: str,
+    *,
+    repeat: int = 1,
+    pass_at_k: int | None = None,
+) -> dict[str, Any]:
+    """Validate then run one scenario from `.agent-sim/scenarios/<id>.jsonl`.
+
+    ``repeat`` / ``pass_at_k`` enable flake-tolerant execution (pass@k).
+    ``repeat=1`` (default) preserves single-shot semantics.
+    """
+    if repeat < 1:
+        raise ValueError(f"repeat must be >= 1, got {repeat}")
+    k = pass_at_k if pass_at_k is not None else repeat
+    if k > repeat:
+        raise ValueError(f"pass_at_k ({k}) cannot exceed repeat ({repeat})")
+
     validation = validate_scenario(project_root, scenario_id)
     if not validation.get("valid"):
         return {"executed": False, "validation": validation}
-    result = await _run_scenario(project_root, scenario_id)
-    return {"executed": True, "validation": validation, **result}
+
+    from .suite import evaluate_run_result
+    from .metrics import metrics_digest
+
+    iterations: list[dict[str, Any]] = []
+    hard_passes = 0
+
+    for i in range(repeat):
+        try:
+            result = await _run_scenario(project_root, scenario_id)
+            # _run_scenario returns raw orchestrator result without executed/validation
+            result["executed"] = True
+            result["validation"] = {"valid": True, "id": scenario_id}
+        except Exception as e:
+            result = {"executed": True, "run_id": None, "status": "failed", "error": f"{type(e).__name__}: {e}"}
+        gate = evaluate_run_result(result)
+        summary = result.get("summary") or {}
+        mdig = metrics_digest(summary.get("metrics") if isinstance(summary.get("metrics"), dict) else None)
+        iterations.append({
+            "i": i + 1,
+            "run_id": result.get("run_id") or summary.get("run_id"),
+            "status": result.get("status"),
+            "gate": gate["gate"],
+            "ok": gate["ok"],
+            "hard_reasons": gate["hard_reasons"],
+            "ttfw_ms": mdig.get("ttfw_ms"),
+            "turn_p50_ms": mdig.get("turn_p50_ms"),
+            "turn_p95_ms": mdig.get("turn_p95_ms"),
+        })
+        if gate["ok"]:
+            hard_passes += 1
+
+    ok = hard_passes >= k
+    out: dict[str, Any] = {
+        "executed": True,
+        "validation": validation,
+        "repeat": repeat,
+        "pass_at_k": k,
+        "hard_passes": hard_passes,
+        "ok": ok,
+        "iterations": iterations,
+    }
+    # Attach last result fields for backward compat
+    if iterations:
+        last = iterations[-1]
+        out["run_id"] = last["run_id"]
+        out["status"] = last["status"]
+        out["iterations"] = iterations
+        # Re-run summary from last non-failed iter if possible
+        for it in reversed(iterations):
+            if it["run_id"]:
+                try:
+                    from .logging.sqlite_store import RunStore
+                    cfg = load_config(project_root)
+                    run = await RunStore(cfg.sqlite_path).get_run(it["run_id"])
+                    if run and run.get("status") == "done":
+                        report_dir = cfg.reports_dir / it["run_id"]
+                        summary_path = report_dir / "summary.json"
+                        if summary_path.exists():
+                            import json
+                            out["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
+                            break
+                except Exception:
+                    pass
+    return out
 
 
 async def execute_scenarios(
@@ -309,11 +388,15 @@ async def execute_scenarios(
     *,
     strict_judge: bool = False,
     write_report: bool = True,
+    repeat: int = 1,
+    pass_at_k: int | None = None,
 ) -> dict[str, Any]:
     """Run multiple scenarios + suite matrix / CI gate.
 
     Hard gate (``suite.ok`` / exit): status, assert_verify, script_verify.
     Judge fail is soft unless ``strict_judge=True``.
+
+    ``repeat`` / ``pass_at_k`` propagate to each scenario (pass@k).
     """
     from .suite import build_suite_report, write_suite_report
 
@@ -330,7 +413,9 @@ async def execute_scenarios(
     results: list[dict[str, Any]] = []
     for sid in targets:
         try:
-            results.append(await execute_scenario(project_root, sid))
+            results.append(
+                await execute_scenario(project_root, sid, repeat=repeat, pass_at_k=pass_at_k)
+            )
         except Exception as e:
             results.append(
                 {
@@ -466,7 +551,10 @@ async def compare_runs(project_root: Path | str, run_id_a: str, run_id_b: str) -
         return {"error": "one or both runs not found", "a": a.get("found"), "b": b.get("found")}
 
     def digest(r: dict[str, Any]) -> dict[str, Any]:
+        from .metrics import metrics_digest
+
         s = r["summary"]
+        md = metrics_digest(s.get("metrics") if isinstance(s.get("metrics"), dict) else None)
         return {
             "run_id": r["run_id"],
             "status": s.get("status"),
@@ -474,8 +562,15 @@ async def compare_runs(project_root: Path | str, run_id_a: str, run_id_b: str) -
             "turn_count": s.get("turn_count"),
             "tool_errors": s.get("tool_errors"),
             "interruptions": s.get("interruptions"),
-            "turn_taking_p50": (s.get("turn_taking_ms") or {}).get("p50"),
-            "turn_taking_p95": (s.get("turn_taking_ms") or {}).get("p95"),
+            "turn_taking_p50": md.get("turn_p50_ms")
+            or (s.get("turn_taking_ms") or {}).get("p50"),
+            "turn_taking_p95": md.get("turn_p95_ms")
+            or (s.get("turn_taking_ms") or {}).get("p95"),
+            "ttfw_ms": md.get("ttfw_ms"),
+            "recovery_p50_ms": md.get("recovery_p50_ms"),
+            "barge_count": md.get("barge_count"),
+            "barge_recovery_rate": md.get("barge_recovery_rate"),
+            "talk_ratio": md.get("talk_ratio"),
             "verdict": (s.get("verdict") or {}).get("verdict"),
         }
 
@@ -495,6 +590,42 @@ async def list_runs(
     if not cfg.sqlite_path.exists():
         return []
     return await RunStore(cfg.sqlite_path).list_runs(limit=limit, scenario_id=scenario_id)
+
+
+def scenario_from_run(
+    project_root: Path | str,
+    run_id: str,
+    *,
+    scenario_id: str | None = None,
+    write: bool = False,
+) -> dict[str, Any]:
+    """Promote a finished run into a draft scenario JSONL (fail → golden).
+
+    Reads ``reports/<run_id>/`` and synthesizes an agent-sim/v1 draft.
+    Dry-run by default (prints to stdout); use ``write=True`` to write
+    ``.agent-sim/scenarios/<id>.jsonl``.
+
+    Result keys: ``scenario_id``, ``source_run_id``, ``jsonl`` (str),
+    ``warnings`` (list), ``kinds``, ``latency_hint``, ``stats``.
+    """
+    from .scenario_from_run import build_scenario_draft_from_run
+
+    cfg = load_config(project_root)
+    report_dir = cfg.reports_dir / run_id
+    if not report_dir.is_dir():
+        raise ConfigError(f"Run report dir not found: {report_dir}")
+
+    draft = build_scenario_draft_from_run(
+        report_dir,
+        scenario_id=scenario_id,
+        locale_default=cfg.simulator.language,
+    )
+
+    if write:
+        dest = cfg.scenarios_dir / f"{draft['scenario_id']}.jsonl"
+        dest.write_text(draft["jsonl"], encoding="utf-8")
+        draft["written_to"] = str(dest)
+    return draft
 
 
 def web(
@@ -539,6 +670,7 @@ __all__ = [
     "execute_scenario",
     "execute_scenarios",
     "execute_scenario_dict",
+    "scenario_from_run",
     "get_run_status",
     "get_run_log",
     "get_run_report",
