@@ -1,7 +1,7 @@
 # livekit-agent-simulator
 
 <div align="center">
-  <img src="lk_sim_illustration.webp" alt="livekit-agent-simulator — AI caller vs LiveKit voice agent with forensic reports" width="720">
+  <img src="lk_sim_illustration.webp" alt="lk-sim — livekit-agent-simulator: black-box LiveKit agent tests with WebRTC, Inbound, Outbound" width="720">
 </div>
 
 <div align="center">
@@ -14,7 +14,7 @@
 
 </div>
 
-**Dial any LiveKit voice agent with an AI simulated caller — and keep a full forensic log.**  
+**Dial any LiveKit voice agent with an AI simulated caller — WebRTC room, inbound SIP, or outbound SIP — and keep a full forensic log.**  
 Standalone MCP server + CLI (`lk-sim`). Black-box testing: no imports from the agent under test, no edits to its code or `.env`.
 
 <div align="center">
@@ -61,12 +61,13 @@ Voice agents fail in ways unit tests never see:
 
 ### The Solution
 
-**livekit-agent-simulator** joins a fresh LiveKit room as `lk-sim-caller`, drives a Gemini Live persona from a scenario JSONL, observes transcripts / tools / flow / room events, and writes a timestamped report you can play back.
+**livekit-agent-simulator** drives a Gemini Live persona from scenario JSONL over one of three transport modes (`Caller.mode`), observes transcripts / tools / flow / room events, and writes a timestamped report you can play back.
 
 | Surface | What you get |
 |---------|--------------|
 | `lk-sim` CLI | init → preflight → execute → report → web |
 | MCP server | Same ops for Claude Code, Cursor, Codex, … |
+| Transport modes | `webrtc_sim` · `inbound_sip` · `outbound_sip` (optional `agent_dials`) |
 | Reports | `events.jsonl`, `timeline.md`, `summary.json`, optional stereo WAV |
 | Judge | Optional LLM PassCriteria scoring |
 
@@ -75,7 +76,8 @@ Voice agents fail in ways unit tests never see:
 | Feature | What it does |
 |---------|--------------|
 | **Black-box dispatch** | Only needs `agent_name` + LiveKit creds |
-| **Scenario JSONL** | Persona, Execute, Script, PassCriteria, Dispatch |
+| **3 transport modes** | WebRTC room, inbound SIP (sim dials DID), outbound SIP (sim answers) |
+| **Scenario JSONL** | Persona, Caller, Telephony, Execute, Script, PassCriteria, Dispatch |
 | **Forensic log** | Per-turn events in SQLite + `reports/<run-id>/` |
 | **Report player** | Local web UI: audio + transcript sync |
 | **CLI ↔ MCP parity** | One `ops` layer — no duplicate run paths |
@@ -125,28 +127,33 @@ lk-sim web --root /path/to/target          # Ctrl+C to stop
 
 ```text
 1. Read <target>/.agent-sim/config.yaml
-2. Create room lk-sim-<run-id> + RoomAgentDispatch(agent_name)
-3. Join as lk-sim-caller; bridge audio to Gemini Live persona
-4. Observe: lk.transcription, data topics, timing, interruptions
+2. Pick SimLeg from scenario Caller.mode (webrtc_sim | inbound_sip | outbound_sip | agent_dials)
+3. Connect leg → LiveKit room(s) / SIP hairpin as needed; Gemini stays WebRTC in the sim room
+4. Bridge audio; observe transcripts, tools, timing, interruptions
 5. Write reports/<run-id>/ + runs.sqlite
 6. Optional LLM judge vs PassCriteria
 ```
 
 ```text
-┌──────────────────┐     dispatch      ┌──────────────────────┐
-│  Gemini Live     │ ───────────────▶  │  Your LiveKit agent  │
-│  sim caller      │   room audio      │  (black box worker)  │
-│  (scenario)      │ ◀───────────────  │                      │
-└────────┬─────────┘                   └──────────────────────┘
-         │ observe
-         ▼
-┌─────────────────────────────────────┐
-│ reports/<run-id>/                   │
-│  events.jsonl · timeline.md         │
-│  summary.json · conversation.wav    │
-│  + runs.sqlite · optional judge     │
-└─────────────────────────────────────┘
+                    Caller.mode (scenario)
+         ┌───────────────┬────────────────┬───────────────┐
+         │  webrtc_sim   │  inbound_sip   │ outbound_sip  │
+         │  room audio   │  sim dials DID │  sim answers  │
+         └───────┬───────┴────────┬───────┴───────┬───────┘
+                 │                │               │
+                 └────────────────┼───────────────┘
+                                  ▼
+                    ┌──────────────────────────┐
+                    │  Gemini Live persona     │
+                    │  + LiveKit agent (black  │
+                    │    box under test)       │
+                    └────────────┬─────────────┘
+                                 │ observe
+                                 ▼
+                    reports/<run-id>/ · runs.sqlite · judge
 ```
+
+Mode details and config: [docs/telephony.md](docs/telephony.md). Templates: `inbound-caller-sim`, `outbound-callee-sim`.
 
 ---
 
