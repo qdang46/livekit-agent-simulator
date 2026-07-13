@@ -8,14 +8,16 @@ application code unless the user asks.
 
 Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports, plugins).
 
-**Related docs** (read when this guide points you there):
+**Related docs** (canonical URLs — `docs/` is **not** shipped in the installed wheel; agents should fetch these links, not repo-relative paths):
 
-| Topic | Where |
-|-------|--------|
-| First-time install + `init` + preflight | [docs/guide/installation.md](../docs/guide/installation.md) |
-| Verify plugins (full API) | [docs/plugins.md](../docs/plugins.md) |
-| Consumer dispatch / data topics / tool patterns | [docs/portability.md](../docs/portability.md) |
-| WAV cue format | `templates/cues/README.md` (in package) |
+| Topic | URL |
+|-------|-----|
+| First-time install + `init` + preflight | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/guide/installation.md |
+| Verify plugins (full API) | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md |
+| Consumer dispatch / data topics / tool patterns | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
+| Caller barge / silence / hang-up patterns | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/caller-pattern-plan.md |
+| Package rules for coding agents | https://github.com/quangdang46/livekit-agent-simulator/blob/main/AGENTS.md |
+| WAV cue format | https://github.com/quangdang46/livekit-agent-simulator/blob/main/templates/cues/README.md |
 
 ---
 
@@ -31,7 +33,7 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 8. If a run fails, promote it to a permanent test: ``scenario-from-run <run-id> --write``, review, add to suite.
 
 ```bash
-# Install once (optional) — full steps: docs/guide/installation.md
+# Install once (optional) — full steps: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/guide/installation.md
 # curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 # From anywhere; point --root at the LiveKit agent repo (not the dashboard)
 lk-sim guide
@@ -73,7 +75,7 @@ Created by `init`. **Gitignored.** Paste secrets here (no env substitution in v1
 **Opaque dispatch:** `dispatch_metadata` and scenario `Dispatch.spec.metadata` are passed through
 as JSON strings. Core **never** parses consumer keys (e.g. product agent ids). If the worker
 bootstraps from dispatch metadata (e.g. `customAgentId`), set `livekit.dispatch_metadata` or
-per-scenario `Dispatch` — see [portability.md](../docs/portability.md).
+per-scenario `Dispatch` — see https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md .
 
 ### Voice, language & call recording
 
@@ -109,6 +111,7 @@ observe:
   lk_transcription: true
   lk_agent_session: true # default; automatic for LiveKit Agents SDK workers
   # Optional fallback for non-SDK custom events — see portability.md:
+  # https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md
   # data_topics: ["myapp.flow"]
   # tool_event_patterns: []
 ```
@@ -175,7 +178,7 @@ lk-sim scenario-init my-case --root /path/to/target
   - Example: `{"id":"caller_hung_up","type":"ended_by","who":"sim"}`
 - **Script action `hang_up`** → sim caller disconnects from room (cúp máy thật)
   - Example: `{"id":"hangup","action":"hang_up","trigger":"time","delay_ms":5000,"say":"Thôi em cúp đây"}`  
-- See `docs/caller-pattern-plan.md` and `templates/examples/character-impatient.jsonl`  
+- See https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/caller-pattern-plan.md and `templates/examples/character-impatient.jsonl` (shipped in package after `init`)
 
 ### Audio cues (built-in + per-repo custom)
 
@@ -192,12 +195,12 @@ lk-sim cues --root /path/to/target --resolve builtin:voice.barge_short
 # MCP: list_cues(project_root=…)
 ```
 
-WAV: **PCM16 mono @ 24 kHz**. Prefer `voice.*` for audible barge-in; noise for beds/bursts. Details: package `templates/cues/README.md`.
+WAV: **PCM16 mono @ 24 kHz**. Prefer `voice.*` for audible barge-in; noise for beds/bursts. Details: https://github.com/quangdang46/livekit-agent-simulator/blob/main/templates/cues/README.md
 
 ### Verify plugins (custom Script checks)
 
 Extend `Script.verify` with project-specific checks on `events.jsonl` — no fork of the sim package.
-Full API: [docs/plugins.md](../docs/plugins.md).
+Full API: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md
 
 **1. Copy and edit the example**
 
@@ -225,7 +228,7 @@ lk-sim plugins --root /path/to/target
 # MCP: list_plugins(project_root=…)
 ```
 
-Ship plugins from an installable package via `[project.entry-points."lk_sim.plugins"]` — see `docs/plugins.md`.
+Ship plugins from an installable package via `[project.entry-points."lk_sim.plugins"]` — see https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md
 
 ### Run
 
@@ -368,5 +371,5 @@ No Node/Vite on the user machine. Player assets ship inside the wheel (built in 
 - **Customize in target** `.agent-sim/` only (config, scenarios, plugins).
 - **No legacy shims** in this package while pre-1.0 — one clear flag name.
 - Prefer `execute` / `execute_scenario` / `execute_scenario_dict` over custom Python runners.
-- Deep package rules + research loop: read package `AGENTS.md`.
-- Consumer wiring examples only: `docs/portability.md` (load when setting up a target, not for core bugs).
+- Deep package rules + research loop: https://github.com/quangdang46/livekit-agent-simulator/blob/main/AGENTS.md
+- Consumer wiring examples only: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md (load when setting up a target, not for core bugs).
