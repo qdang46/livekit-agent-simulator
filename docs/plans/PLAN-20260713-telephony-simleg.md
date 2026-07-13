@@ -82,10 +82,10 @@ Plus Exa: LiveKit outbound/testing docs, Hamming/Coval/Bluejay/Sipfront telephon
 
 **`agent_dials` (Pattern B):** lk-sim chỉ dispatch + observe; worker gọi `create_sip_participant` trong entrypoint. Ship as **T5** — cần target agent hợp tác, không black-box. Không thay Pattern A làm default.
 
-### Open questions (owner — blocking T2)
+### Open questions (owner)
 
-1. **Callee endpoint for outbound:** Số/URI nào nhận dial và chạy Gemini? (sidecar sip2ai, hairpin inbound rule, hay build `lk-sim callee-bridge` subcommand?)
-2. **CI:** Có trunk + sim endpoint dùng chung không? E.164 allowlist?
+1. **Callee endpoint for outbound (blocking T2):** Số/URI nào nhận dial và chạy Gemini? (sidecar sip2ai, hairpin inbound rule, hay build `lk-sim callee-bridge` subcommand?)
+2. ~~**CI trunk:**~~ **Resolved — defer.** Dev phase = **local manual only**; PR CI stays unit/mock (`pytest -q`). Telephony E2E khi dev: `lk-sim execute` trên máy local với trunk trong `.agent-sim/config.yaml`. CI trunk/nightly **không cần** cho giai đoạn hiện tại.
 3. **`wait_until_answered` default:** `true` (strict) vs `false` (match `outbound.ts`)?
 4. **Inline trunk in v1:** Chỉ `sip_trunk_id` trước, hay cần inline `SIPOutboundConfig` ngay?
 5. **Reference target:** `voice-ai-worker` `.agent-sim/` làm telephony suite mẫu?
@@ -234,15 +234,17 @@ effective_prepare_ms = Telephony.prepare_ms ?? config.telephony.prepare_ms
 
 ## CI / test strategy
 
-| Tier | What | Trunk? |
-|---|---|---|
-| **PR (required)** | Unit: scenario parse, factory, config, mocked SIP API, assert fixtures | No |
-| **Manual / nightly** | `lk-sim execute --tag telephony` with real trunk + sim endpoint | Yes |
-| **Never in public CI** | Dial personal mobile; production trunks without isolation | — |
+**Owner decision (dev phase):** Không cần CI trunk. Test telephony chạy **local manual** khi dev; CI PR chỉ unit/mock.
+
+| Tier | When | What | Trunk? |
+|---|---|---|---|
+| **PR (required)** | Now | Unit: scenario parse, factory, config, mocked SIP API, assert fixtures | No |
+| **Local manual** | Dev | `lk-sim preflight` + `lk-sim execute <scenario>` với trunk trong target `.agent-sim/config.yaml` | Yes (your dev trunk) |
+| **CI telephony E2E** | **Defer** | Nightly/shared trunk — revisit khi telephony ổn định | Later |
 
 Extend `tests/test_dispatch_mock.py` pattern for `create_sip_participant` mocks.
 
-Mark integration: `@pytest.mark.telephony` — skip unless config fixture has `sip_trunk_id`.
+Mark integration: `@pytest.mark.telephony` — skip in `pytest -q` unless local `--run-telephony` or config fixture has `sip_trunk_id`.
 
 ## Risk matrix
 
@@ -286,4 +288,4 @@ lk-sim niche unchanged: **open, local-first, forensic, MCP-native**. Telephony c
 
 ---
 
-**Next step:** Reply **go ahead** to implement **T0 + T1** first (safe refactor + contract), then **T2 spike** with your answers to open questions 1–2.
+**Next step:** Reply **go ahead** to implement **T0 + T1** first. T2 spike dùng **trunk local** trong `.agent-sim/config.yaml` — không block bởi CI.
