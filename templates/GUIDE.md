@@ -168,12 +168,15 @@ lk-sim scenario-init my-case --root /path/to/target
 | `Telephony` | no if WebRTC | SIP dial params: `call_to` / `dial_in` / `sip_trunk_id` / `prepare_ms` (overrides config) |
 | `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`, `hang_ups`) |
 | `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
-| `Assert` | no | tools / transcript / **`sip`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, `llm_bool`) |
+| `Assert` | no | tools / transcript / **`sip`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, **`goals_met`**, `llm_bool`) |
 | `Plugins` | no | Load local verify modules — see **Verify plugins** below |
 | `PassCriteria` | no | Soft LLM judge rubric |
 
 ### Caller character (Hamming-aligned)
 
+- Persona prompt now uses a **numbered GOAL checklist** (`## YOUR GOALS`) plus **guardrails** (`## GUARDRAILS`)
+  - Caller must work through all goals one-by-one; early `[END_CALL]` causes a failed test
+  - External verification via `Assert.spec.outcomes[].type: goals_met`
 - **constraints[]** → hard rules in Gemini system prompt  
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
   - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
@@ -183,6 +186,9 @@ lk-sim scenario-init my-case --root /path/to/target
   - Example: `{"id":"speed","type":"latency","max_turn_p95_ms":3500,"max_ttfw_ms":5000,"require_turn_samples":1}`
 - **Assert** `outcomes` type **`ended_by`** → assert which side ended the call (`sim` / `agent` / `detect`)
   - Example: `{"id":"caller_hung_up","type":"ended_by","who":"sim"}`
+- **Assert** `outcomes` type **`goals_met`** → LLM judge verifies the simulated caller stated/pursued at least N persona goals before `[END_CALL]` (hard fail if not met)
+  - Example: `{"id":"goals_done","type":"goals_met","min_goals":2,"goals":["Hear greeting","Ask about pricing"]}`
+  - Without explicit `goals`, falls back to `Persona.spec.goals` from the scenario
 - **Script action `hang_up`** → sim caller disconnects from room (cúp máy thật)
   - Example: `{"id":"hangup","action":"hang_up","trigger":"time","delay_ms":5000,"say":"Thôi em cúp đây"}`  
 - See https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/caller-pattern-plan.md and `templates/examples/character-impatient.jsonl` (shipped in package after `init`)

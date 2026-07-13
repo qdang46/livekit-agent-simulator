@@ -537,6 +537,14 @@ Assert highlights (for scenario authors after setup):
 - `latency` — hard gate on turn p95 / TTFW / barge recovery rate  
 - `recovery` — agent re-engages after barge  
 - `ended_by` — `sim` | `agent` | `detect` after script `hang_up` or natural end  
+- `goals_met` — LLM judge verifies caller pursued N persona goals before `[END_CALL]` (hard fail)  
+
+Persona prompt now uses numbered GOAL checklist + guardrails against premature end.
+The caller must work through all goals; early `[END_CALL]` causes a failed test.
+
+```jsonl
+{"kind":"Assert","spec":{"outcomes":[{"id":"caller_pursued_goals","type":"goals_met","min_goals":2,"goals":["Hear greeting","Get info"]}]}}
+```
 
 Script action `hang_up` makes the sim caller leave the room (hard hangup).
 
