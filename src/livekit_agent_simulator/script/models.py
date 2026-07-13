@@ -27,6 +27,8 @@ class ScriptStep:
     barge_in: bool = False
     # When barge_in + gemini_text: play builtin noise.blip first (audible cut-in).
     with_blip: bool = True
+    # Linear playback gain for this cue (0.0–1.0). Applies to gemini_text TTS and room_pcm.
+    gain: float = 1.0
 
 
 @dataclass(frozen=True)

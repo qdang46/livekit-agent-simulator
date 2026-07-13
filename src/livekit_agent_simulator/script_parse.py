@@ -5,6 +5,25 @@ from typing import Any
 from .script import SUPPORTED_ACTIONS, SUPPORTED_TRIGGERS, ScriptStep, ScriptVerifySpec
 
 
+def _parse_step_gain(raw: dict[str, Any], path_label: str, step_id: str) -> float:
+    key = "gain"
+    if "gain" not in raw and "volume" in raw:
+        key = "volume"
+    if key not in raw:
+        return 1.0
+    try:
+        gain = float(raw[key])
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"{path_label}: Script step {step_id!r}: {key} must be a number"
+        ) from e
+    if not 0.0 <= gain <= 1.0:
+        raise ValueError(
+            f"{path_label}: Script step {step_id!r}: {key} must be between 0.0 and 1.0"
+        )
+    return gain
+
+
 def parse_script_verify(raw: Any) -> ScriptVerifySpec | None:
     if raw is None:
         return None
@@ -91,6 +110,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
             with_blip = bool(raw.get("with_blip"))
         else:
             with_blip = barge_in and delivery != "room_pcm"
+        gain = _parse_step_gain(raw, path_label, step_id)
 
         steps.append(
             ScriptStep(
@@ -108,6 +128,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 require_agent_spoke_first=bool(raw.get("require_agent_spoke_first", True)),
                 barge_in=barge_in,
                 with_blip=with_blip,
+                gain=gain,
             )
         )
     return steps

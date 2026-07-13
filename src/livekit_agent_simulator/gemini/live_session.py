@@ -71,6 +71,9 @@ class GeminiCallerBridge:
         # Scripted user long-silence: hold persona + pause dead_call until this mono time (+ grace).
         self._script_hold_until_mono: float | None = None
         self._script_hold_grace_s: float = 20.0
+        # Linear gain for script-injected gemini_text playback (reset on turn_complete).
+        self._inject_playback_gain: float = 1.0
+        self._inject_turn_active: bool = False
 
     # ------------------------------------------------------------------ setup
 
@@ -224,6 +227,7 @@ class GeminiCallerBridge:
         delivery: str = "gemini_text",
         asset: str | None = None,
         scenario_dir: Path | None = None,
+        gain: float = 1.0,
     ) -> None:
         """Inject caller speech while the agent is talking."""
         if delivery == "room_pcm":
@@ -246,7 +250,7 @@ class GeminiCallerBridge:
                     f"(resample cue WAV): {wav_path}"
                 )
             # Parallel: noise layer mixes with Gemini speech; does not mute TTS.
-            self._mixer.push_noise(pcm)
+            self._mixer.push_noise(pcm, gain=gain)
             # Pace script step roughly for the noise duration without blocking speech path.
             duration_s = max(0.05, len(pcm) / 2 / rate)
             await asyncio.sleep(duration_s)
@@ -259,6 +263,7 @@ class GeminiCallerBridge:
                     "asset": str(wav_path),
                     "mix": "parallel",
                     "duration_ms": int(duration_s * 1000),
+                    "gain": gain,
                 },
                 source="script",
                 include_dialogue=False,
@@ -267,10 +272,12 @@ class GeminiCallerBridge:
 
         if self._live_session is None:
             raise RuntimeError("Gemini live session not ready for inject")
+        self._inject_playback_gain = gain
+        self._inject_turn_active = True
         await self._live_session.send_realtime_input(text=text)
         self.writer.emit(
             "sim.script_inject",
-            spec={"text": text, "label": label, "delivery": delivery},
+            spec={"text": text, "label": label, "delivery": delivery, "gain": gain},
             source="script",
             include_dialogue=False,
         )
@@ -359,6 +366,8 @@ class GeminiCallerBridge:
                                 await self._play_pcm(blob.data)
 
                     if sc.turn_complete:
+                        self._inject_turn_active = False
+                        self._inject_playback_gain = 1.0
                         if self._persona_output_suppressed():
                             self._sim_out_text = ""
                             continue
@@ -394,8 +403,9 @@ class GeminiCallerBridge:
         """Queue Gemini TTS onto the parallel mixer (mixes with active noise layers)."""
         if not pcm:
             return
+        gain = self._inject_playback_gain if self._inject_turn_active else 1.0
         if self._mixer is not None:
-            self._mixer.push_speech(pcm)
+            self._mixer.push_speech(pcm, gain=gain)
             return
         # Fallback if mixer not started (should not happen after publish_mic).
         source = self._source

@@ -47,6 +47,9 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
     noise = sc.get("noise") or sc.get("ambient")
     if noise:
         delay = int(sc.get("noise_delay_ms") or sc.get("after_join_ms") or 5000)
+        noise_gain = float(sc.get("noise_gain", 1.0))
+        if not 0.0 <= noise_gain <= 1.0:
+            raise ValueError("Persona.speech_conditions.noise_gain must be between 0.0 and 1.0")
         steps.append(
             ScriptStep(
                 id="auto-ambient",
@@ -57,6 +60,7 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
                 delivery="room_pcm",
                 asset=str(noise).strip(),
                 once=True,
+                gain=noise_gain,
             )
         )
 
@@ -70,6 +74,9 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
         # Text barge: blip by default. Vocal WAV (voice.*) already carries energy — no blip.
         default_blip = not _is_voice_asset(asset_s) if asset_s else True
         with_blip = bool(sc.get("with_blip", default_blip))
+        barge_gain = float(sc.get("barge_gain", sc.get("gain", 1.0)))
+        if not 0.0 <= barge_gain <= 1.0:
+            raise ValueError("Persona.speech_conditions.barge_gain must be between 0.0 and 1.0")
         steps.append(
             ScriptStep(
                 id="auto-barge-1",
@@ -83,6 +90,7 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
                 barge_in=True,
                 with_blip=with_blip,
                 once=True,
+                gain=barge_gain,
             )
         )
 
@@ -148,6 +156,9 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
             with_blip = False
         else:
             with_blip = delivery != "room_pcm"
+        step_gain = float(raw.get("gain", raw.get("volume", 1.0)))
+        if not 0.0 <= step_gain <= 1.0:
+            raise ValueError(f"{path_label}: barge_ins[{i}] gain must be between 0.0 and 1.0")
         steps.append(
             ScriptStep(
                 id=sid,
@@ -161,6 +172,7 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
                 barge_in=True,
                 with_blip=with_blip,
                 once=bool(raw.get("once", True)),
+                gain=step_gain,
             )
         )
 

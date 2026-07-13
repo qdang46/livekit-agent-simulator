@@ -154,6 +154,9 @@ def export_scenario_dict(scenario: Scenario) -> dict[str, Any]:
                     "delivery": s.delivery,
                     "asset": s.asset,
                     "silence_after_cue_ms": s.silence_after_cue_ms,
+                    "barge_in": s.barge_in,
+                    "with_blip": s.with_blip,
+                    "gain": s.gain,
                 }
                 for s in scenario.script_steps
             ],

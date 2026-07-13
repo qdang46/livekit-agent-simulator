@@ -33,6 +33,8 @@ lk-sim cues --root /path/to/target --resolve builtin:noise.loud
 
 Vocal `voice.*` assets are PCM speech mixed into the sim mic (`room_pcm`). Prefer them for audible barge-in; leave `with_blip: false` (default when asset is `voice.*`).
 
+**Per-step volume:** set `"gain": 0.0–1.0` on any Script step (alias `"volume"`). Applies to `gemini_text` TTS and `room_pcm` cues. Persona `speech_conditions` supports `barge_gain` and `noise_gain` for auto-compiled steps.
+
 ## Scenario examples
 
 ```json
@@ -41,6 +43,10 @@ Vocal `voice.*` assets are PCM speech mixed into the sim mic (`room_pcm`). Prefe
 
 ```json
 {"id":"b1","trigger":"agent_speaking","delay_ms":400,"delivery":"room_pcm","asset":"builtin:voice.barge_short","say":"[barge]","barge_in":true,"with_blip":false}
+```
+
+```json
+{"id":"soft-barge","trigger":"agent_speaking","delay_ms":900,"say":"Wait — one second","barge_in":true,"gain":0.45,"with_blip":false}
 ```
 
 ```json

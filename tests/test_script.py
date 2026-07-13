@@ -44,6 +44,30 @@ def test_parse_script_steps():
     assert steps[2].delay_ms == 250
 
 
+def test_parse_script_step_gain():
+    steps = parse_script_steps(
+        {
+            "steps": [
+                {"id": "main", "trigger": "silence", "delay_ms": 500, "say": "Hello"},
+                {
+                    "id": "soft-barge",
+                    "barge_in": True,
+                    "say": "wait",
+                    "gain": 0.4,
+                },
+            ]
+        },
+        "test.jsonl:1",
+    )
+    assert steps[0].gain == 1.0
+    assert steps[1].gain == 0.4
+    with pytest.raises(ValueError, match="volume must be between"):
+        parse_script_steps(
+            {"steps": [{"id": "bad", "trigger": "time", "delay_ms": 0, "say": "x", "volume": 1.5}]},
+            "test.jsonl:1",
+        )
+
+
 def test_parse_script_verify():
     v = parse_script_verify({"min_agent_finals_after_first_cue": 1, "max_interruptions": 0})
     assert v is not None

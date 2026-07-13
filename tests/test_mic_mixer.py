@@ -1,7 +1,11 @@
 import array
 import struct
 
-from livekit_agent_simulator.audio.mic_mixer import mix_pcm16_layers, _pcm_to_samples
+from livekit_agent_simulator.audio.mic_mixer import (
+    mix_pcm16_layers,
+    scale_pcm16_samples,
+    _pcm_to_samples,
+)
 
 
 def test_mix_pcm16_layers_sums_and_saturates() -> None:
@@ -20,6 +24,32 @@ def test_pcm_to_samples_roundtrip() -> None:
     raw = struct.pack("<3h", -100, 0, 200)
     samples = _pcm_to_samples(raw)
     assert list(samples) == [-100, 0, 200]
+
+
+def test_scale_pcm16_samples() -> None:
+    samples = array.array("h", [1000, -2000, 30000])
+    out = scale_pcm16_samples(samples, 0.5)
+    assert list(out) == [500, -1000, 15000]
+
+
+def test_mixer_push_speech_applies_gain() -> None:
+    from livekit_agent_simulator.audio.mic_mixer import ParallelMicMixer
+
+    class _FakeSrc:
+        sample_rate = 24_000
+
+        async def capture_frame(self, frame) -> None:  # noqa: ANN001
+            pass
+
+    src = _FakeSrc()
+    mixer = ParallelMicMixer(src, sample_rate=24_000, frame_ms=10)  # type: ignore[arg-type]
+    n = mixer.frame_samples
+    speech = array.array("h", [1000] * n)
+    mixer.push_speech(speech.tobytes(), gain=0.5)
+    pcm = mixer._pop_frame()
+    out = array.array("h")
+    out.frombytes(pcm)
+    assert out[0] == 500
 
 
 def test_mixer_pop_frame_mixes_speech_and_noise() -> None:

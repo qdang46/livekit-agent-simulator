@@ -35,6 +35,27 @@ def _pcm_to_samples(pcm: bytes) -> array.array:
     return a
 
 
+def scale_pcm16_samples(samples: array.array, gain: float) -> array.array:
+    """Scale PCM16 mono samples by linear gain (0.0–1.0 typical), with saturation."""
+    if gain == 1.0 or not samples:
+        return samples
+    out = array.array("h", [0] * len(samples))
+    for i, s in enumerate(samples):
+        v = int(round(int(s) * gain))
+        if v > 32767:
+            v = 32767
+        elif v < -32768:
+            v = -32768
+        out[i] = v
+    return out
+
+
+def scale_pcm16_bytes(pcm: bytes, gain: float) -> bytes:
+    if gain == 1.0 or not pcm:
+        return pcm
+    return scale_pcm16_samples(_pcm_to_samples(pcm), gain).tobytes()
+
+
 def mix_pcm16_layers(*layers: array.array | list[int] | None) -> array.array:
     """Sum aligned PCM16 samples with saturate; length = max(layer lengths)."""
     active = [array.array("h", layer) if not isinstance(layer, array.array) else layer
@@ -110,20 +131,24 @@ class ParallelMicMixer:
                 await asyncio.gather(self._task, return_exceptions=True)
             self._task = None
 
-    def push_speech(self, pcm: bytes) -> None:
+    def push_speech(self, pcm: bytes, *, gain: float = 1.0) -> None:
         """Queue Gemini (or other) speech — plays mixed with any active noise."""
         samples = _pcm_to_samples(pcm)
         if not samples:
             return
+        if gain != 1.0:
+            samples = scale_pcm16_samples(samples, gain)
         with self._lock:
             self._speech.extend(samples)
             self._speech_samples_in += len(samples)
 
-    def push_noise(self, pcm: bytes) -> None:
+    def push_noise(self, pcm: bytes, *, gain: float = 1.0) -> None:
         """Start a noise layer that plays in parallel with speech (does not block speech)."""
         samples = _pcm_to_samples(pcm)
         if not samples:
             return
+        if gain != 1.0:
+            samples = scale_pcm16_samples(samples, gain)
         with self._lock:
             self._noise_tracks.append(samples)
             self._noise_samples_in += len(samples)
