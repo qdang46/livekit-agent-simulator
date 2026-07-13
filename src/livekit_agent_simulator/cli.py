@@ -88,7 +88,7 @@ def web(
 ) -> None:
     """Local report player: audio + transcript sync while playing. (MCP: web)"""
     try:
-        typer.secho("Starting report UI — Ctrl+C to stop", fg=typer.colors.GREEN)
+        typer.echo("Starting report UI — Ctrl+C to stop")
         info = ops.web(
             _root(root),
             run_id=run_id,
@@ -99,7 +99,7 @@ def web(
         )
         _print({k: v for k, v in info.items() if k not in ("server", "thread")})
     except KeyboardInterrupt:
-        typer.secho("\nStopped report UI.", fg=typer.colors.YELLOW)
+        typer.echo("\nStopped report UI.")
         raise typer.Exit(0)
     except (ConfigError, FileNotFoundError, OSError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)

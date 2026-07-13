@@ -8,9 +8,10 @@
 
 1. **Never import or edit the agent-under-test application source** (no patches to worker business code). Only create/edit files under `<target>/.agent-sim/` (gitignored).
 2. **Never commit secrets.** `.agent-sim/` must stay gitignored. Do not paste API keys into git-tracked files.
-3. **Do not invent LiveKit / Gemini credentials.** Ask the user or read from existing local env files they already have (e.g. `.env` in the target repo) with permission.
-4. Prefer **non-interactive** commands. Use `--root <absolute-path>` always.
-5. Prefer the **portable installer** (no uv/pip on the user machine) unless the user is developing the simulator package itself.
+3. **Do not invent LiveKit / Gemini credentials or dispatch metadata.** Discover from the target repo (§4.0) or ask the user. Read `.env` only with permission.
+4. **Discover before `AskQuestion`.** Read target docs and existing `.agent-sim/` (read-only). Do not assume consumer-specific file paths or metadata keys (e.g. one repo’s `job-metadata.ts` or `customAgentId` is not universal).
+5. Prefer **non-interactive** commands. Use `--root <absolute-path>` always.
+6. Prefer the **portable installer** (no uv/pip on the user machine) unless the user is developing the simulator package itself.
 
 ---
 
@@ -204,7 +205,7 @@ Open `$TARGET_ROOT/.agent-sim/config.yaml`. Required:
 |-----|--------|
 | `livekit.url` | `wss://…` LiveKit Cloud or self-host |
 | `livekit.api_key` / `livekit.api_secret` | LiveKit server API credentials |
-| `livekit.agent_name` | **Exact** dispatch name the worker registers (e.g. `voice-ai-worker-local` for local dev) |
+| `livekit.agent_name` | **Exact** dispatch name the worker registers (from worker docs, env, or LiveKit config — consumer-specific) |
 | `simulator.google_api_key` | Gemini API key with Live model access |
 
 Recommended defaults (already in template):
@@ -218,9 +219,9 @@ Optional but common:
 
 ```yaml
 livekit:
-  # Opaque JSON string for RoomAgentDispatch.metadata (project-specific).
-  # Example consumer key — do NOT invent values:
-  # dispatch_metadata: '{"customAgentId":"agent_xxx"}'
+  # Opaque JSON string for RoomAgentDispatch.metadata (consumer-specific keys).
+  # lk-sim forwards this string as-is; discover keys from target docs/source (§4.0).
+  # dispatch_metadata: '{"yourConsumerKey":"value"}'
   agent_join_timeout_ms: 25000
 
 simulator:
@@ -243,43 +244,71 @@ Set `observe.lk_agent_session: false` only for agents that do not implement this
 protocol. For those agents, map custom data messages with
 `observe.tool_event_patterns`; see [portability.md](../portability.md).
 
-**How the agent should obtain values:**
+**How the agent should obtain values (order matters):**
 
-1. **Try env first** (with user permission): read `.env` / `.env.local` in `TARGET_ROOT` and map keys below.
-2. **If any required field is still empty**, call **`AskQuestion`** (§4.1) — do not invent values. Paste secrets into `config.yaml` or read `.env`; never put API keys in `AskQuestion` option labels.
-3. Never print full secrets in chat; confirm only that fields are **set**.
+1. **Discover** the target repo (§4.0) — docs, existing `.agent-sim/`, read-only code search for dispatch metadata and `agent_name`.
+2. **Try env** (with user permission): read `.env` / `.env.local` in `TARGET_ROOT` and map common keys below.
+3. **If still empty or ambiguous**, call **`AskQuestion`** (§4.1) — do not invent values. Paste secrets into `config.yaml` or read `.env`; never put API keys in `AskQuestion` option labels.
+4. Never print full secrets in chat; confirm only that fields are **set**.
 
-| Env var (target repo) | `config.yaml` key |
-|-----------------------|-------------------|
+| Env var (common patterns in target repo) | `config.yaml` key |
+|------------------------------------------|-------------------|
 | `LIVEKIT_URL` | `livekit.url` |
 | `LIVEKIT_API_KEY` | `livekit.api_key` |
 | `LIVEKIT_API_SECRET` | `livekit.api_secret` |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` | `simulator.google_api_key` |
-| `VOICE_AI_AGENT_NAME` (or worker docs) | `livekit.agent_name` |
+| Consumer-specific (search docs — not one global name) | `livekit.agent_name` |
 
-Per-scenario dispatch override (if the product needs opaque metadata):
+Per-scenario dispatch override (opaque JSON — keys are consumer-specific):
 
 ```jsonl
-{"kind":"Dispatch","spec":{"metadata":"{\"customAgentId\":\"agent_xxx\"}"}}
+{"kind":"Dispatch","spec":{"metadata":"{\"yourConsumerKey\":\"value\"}"}}
 ```
 
 More consumer wiring notes: [portability.md](../portability.md).
 
-### 4.1 `AskQuestion` tool (when env is empty or ambiguous)
+### 4.0 Discover consumer repo (before `AskQuestion`)
 
-When setup is blocked on a **user decision**, call the coding agent’s **`AskQuestion`** tool
+`lk-sim` is **target-agnostic**. Each consumer defines its own dispatch metadata keys, data topics, and docs layout. **Do not hardcode paths or field names from one repo** (e.g. `bootstrap/job-metadata.ts`, `customAgentId`) in this guide or in setup steps.
+
+Read-only discovery in `TARGET_ROOT` (in order):
+
+1. **Existing sim scaffold** — `.agent-sim/config.yaml`, `scenarios/*.jsonl` (especially `Dispatch` lines), `cues/`, `plugins/`.
+2. **Docs** — `README*`, `docs/**` — search for: `dispatch`, `metadata`, `agent_name`, `RoomAgentDispatch`, `data_topics`.
+3. **Env templates** — `.env.example`, `.env.local.example` — map only keys that exist there; do not assume a global env name for `agent_name` or metadata IDs.
+4. **Code search (read-only, no edits)** — examples:
+   - `dispatch_metadata`, `job.metadata`, `parseMetadata`, `RoomAgentDispatch`
+   - `data_topics`, `publishData`, topic names the agent emits
+   - `agent_name`, `agentName`, worker registration / dispatch name
+5. **Portability** — [portability.md](../portability.md) for how lk-sim forwards opaque JSON and observes data topics.
+
+**Infer wiring from discovery:**
+
+| Finding | lk-sim action |
+|---------|----------------|
+| Worker reads JSON from dispatch/job metadata | Set `livekit.dispatch_metadata` and/or per-scenario `Dispatch.metadata` with the **same key names** found in docs/search (values from user or existing config — never invent) |
+| Agent publishes named data topics | Set `observe.data_topics` to those topic strings (or `[]` to record all) |
+| Non–LiveKit Agents SDK worker | Consider `observe.lk_agent_session: false` + `tool_event_patterns` (see portability) |
+| Nothing requires opaque metadata | Leave `dispatch_metadata` unset |
+
+**Ask the user only for gaps** discovery cannot resolve: which agent ID / metadata value, prod vs local dispatch name, permission to read `.env`, whether to run smoke `execute`.
+
+### 4.1 `AskQuestion` tool (only after §4.0 discover + env)
+
+When setup is blocked on a **user decision** discovery could not resolve, call the coding agent’s **`AskQuestion`** tool
 (structured multiple-choice form). Available on **Cursor, Claude Code, Codex, Windsurf**, and similar hosts.
-**Not** for typing secrets — use it for **which repo**, **credential source**, **toggles**, and **optional wiring**.
+**Not** for typing secrets — use it for **which repo**, **credential source**, **toggles**, and **unresolved wiring**.
 
 Rules:
 
+- Run **§4.0 discover first** — do not ask “do you need dispatch metadata?” if docs/search already show required metadata keys.
 - **≤ 3 questions per `AskQuestion` call** (batch related choices).
 - Each question needs **≥ 2 options**; put the recommended default **first** and append `(Recommended)` to its label.
-- User can always pick **Other** for a custom path, `agent_name`, `customAgentId`, etc.
+- User can always pick **Other** for a custom path, `agent_name`, metadata JSON, or consumer-specific keys.
 - **Secrets** (`api_key`, `api_secret`, `google_api_key`): never list real values as options. Either read `.env` after user picks “read env”, or ask them to edit `config.yaml` / use **Other** for one-off paste.
 - If the host has no `AskQuestion`, ask the same prompts in chat.
 
-#### Turn 1 — typical `AskQuestion` (after `init`, before editing config)
+#### Turn 1 — typical `AskQuestion` (after `init` + §4.0, before writing config)
 
 ```json
 {
@@ -321,7 +350,9 @@ Rules:
 
 > Create at [Google AI Studio](https://aistudio.google.com/apikey). Same key as worker `GOOGLE_API_KEY` is fine. Needs Gemini Live access for `gemini-3.1-flash-live-preview`.
 
-#### Turn 2 — only if still ambiguous (second `AskQuestion`, optional)
+#### Turn 2 — only if still ambiguous after discover (second `AskQuestion`, optional)
+
+Skip questions already answered by §4.0 (e.g. skip dispatch-metadata question if discovery found required keys).
 
 ```json
 {
@@ -339,11 +370,11 @@ Rules:
     },
     {
       "id": "dispatch_metadata",
-      "prompt": "Does your worker need opaque dispatch metadata (e.g. customAgentId)?",
+      "prompt": "Where should opaque dispatch metadata live? (Only if discovery found required keys but not where to set them)",
       "options": [
-        {"id": "no", "label": "No / not sure (Recommended for generic agents)"},
-        {"id": "yes_config", "label": "Yes — set livekit.dispatch_metadata in config.yaml"},
-        {"id": "yes_scenario", "label": "Yes — per-scenario Dispatch line in JSONL only"}
+        {"id": "none", "label": "Not needed / already in scenario JSONL (Recommended if discovery found nothing)"},
+        {"id": "yes_config", "label": "Default for all runs — livekit.dispatch_metadata in config.yaml"},
+        {"id": "yes_scenario", "label": "Per-scenario only — Dispatch line in JSONL"}
       ]
     },
     {
@@ -358,16 +389,18 @@ Rules:
 }
 ```
 
+If discovery found required metadata keys but not values, ask in chat or **Other** for the JSON string — **never invent** consumer IDs.
+
 #### Reference — what each bucket maps to
 
-**Order:** `TARGET_ROOT` → credentials → toggles → optional wiring → preflight → confirm execute.
+**Order:** `TARGET_ROOT` → **discover (§4.0)** → credentials → toggles → optional wiring → preflight → confirm execute.
 
 | Bucket | Use `AskQuestion` for | Maps to / action |
 |--------|----------------------|------------------|
 | **A. Target repo** | Which folder is `TARGET_ROOT` | `--root` on every command |
 | **B. Credentials** | Read `.env` vs user edits yaml | `livekit.*`, `simulator.google_api_key` |
 | **C. Toggles** | `record_audio`, language, timezone, judge | `observe.record_audio`, `simulator.language`, `observe.timezone`, `judge:` |
-| **D. Product wiring** | `customAgentId`, `data_topics`, `first_speaker` | `dispatch_metadata`, `observe.data_topics`, scenario `Execute` |
+| **D. Product wiring** | Unresolved metadata keys/values, `data_topics`, `first_speaker` (after discover) | `dispatch_metadata`, `observe.data_topics`, scenario `Execute` / `Dispatch` |
 | **E. Skip** | Worker start command, SIP, load test | Out of scope (§9) |
 | **F. After preflight** | `run_smoke` question or plain chat | `execute` only if user chose it or confirmed worker is up |
 
@@ -507,6 +540,7 @@ Mark setup complete only when **all** of these are true:
 - [ ] `.agent-sim/` is gitignored
 - [ ] `lk-sim preflight --root "$TARGET_ROOT"` → `ok: true`
 - [ ] User knows the worker must be running before `execute`
+- [ ] Consumer dispatch metadata / `data_topics` set when discovery (§4.0) shows they are required
 - [ ] (Tool scenarios) report contains `tool.*` and `session.chat_history`, with no `tool_events` observe gap
 - [ ] (Optional) MCP `livekit-agent-simulator` registered if they use a coding agent
 - [ ] (Optional) `lk-sim execute smoke-hello --root "$TARGET_ROOT"` → `status: done` or a clear next fix (agent timeout / Gemini quota)
@@ -544,9 +578,10 @@ lk-sim --help >/dev/null
 # 2) Scaffold target project
 lk-sim init --root "$TARGET_ROOT"
 
-# 3) STOP: fill secrets in $TARGET_ROOT/.agent-sim/config.yaml
+# 3) STOP: discover TARGET_ROOT (§4.0), then fill $TARGET_ROOT/.agent-sim/config.yaml
 #    livekit.url / api_key / api_secret / agent_name
 #    simulator.google_api_key
+#    optional: livekit.dispatch_metadata, observe.data_topics (from consumer docs/search)
 #    Then continue:
 
 lk-sim preflight --root "$TARGET_ROOT"
@@ -573,9 +608,10 @@ lk-sim --help | Out-Null
 # 2) Scaffold target project
 lk-sim init --root $TARGET_ROOT
 
-# 3) STOP: fill secrets in $TARGET_ROOT\.agent-sim\config.yaml
+# 3) STOP: discover TARGET_ROOT (§4.0), then fill $TARGET_ROOT\.agent-sim\config.yaml
 #    livekit.url / api_key / api_secret / agent_name
 #    simulator.google_api_key
+#    optional: livekit.dispatch_metadata, observe.data_topics (from consumer docs/search)
 #    Then continue:
 
 lk-sim preflight --root $TARGET_ROOT
