@@ -8,6 +8,15 @@ application code unless the user asks.
 
 Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports, plugins).
 
+**Related docs** (read when this guide points you there):
+
+| Topic | Where |
+|-------|--------|
+| First-time install + `init` + preflight | [docs/guide/installation.md](../docs/guide/installation.md) |
+| Verify plugins (full API) | [docs/plugins.md](../docs/plugins.md) |
+| Consumer dispatch / data topics / tool patterns | [docs/portability.md](../docs/portability.md) |
+| WAV cue format | `templates/cues/README.md` (in package) |
+
 ---
 
 ## 0. If you know nothing — do this order
@@ -22,20 +31,11 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 8. If a run fails, promote it to a permanent test: ``scenario-from-run <run-id> --write``, review, add to suite.
 
 ```bash
-# Install once (optional):
+# Install once (optional) — full steps: docs/guide/installation.md
 # curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
-# From anywhere; point --root at the target repo under test
+# From anywhere; point --root at the LiveKit agent repo (not the dashboard)
 lk-sim guide
-lk-sim init --root /path/to/target
-# edit /path/to/target/.agent-sim/config.yaml
-lk-sim preflight --root /path/to/target
-
-```bash
-# Install once (optional):
-# curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
-# From anywhere; point --root at the target repo under test
-lk-sim guide
-lk-sim init --root /path/to/target
+lk-sim init --root /path/to/target   # safe to re-run; does not overwrite existing config/scenarios
 # edit /path/to/target/.agent-sim/config.yaml
 lk-sim preflight --root /path/to/target
 lk-sim scenario-init smoke-hello --root /path/to/target   # skip if file already exists
@@ -70,7 +70,63 @@ Created by `init`. **Gitignored.** Paste secrets here (no env substitution in v1
 | `observe.tool_event_patterns` | no | Map data payloads → `tool.start` / `tool.end` / `tool.error` |
 
 **Opaque dispatch:** `dispatch_metadata` and scenario `Dispatch.spec.metadata` are passed through
-as JSON strings. Core **never** parses consumer keys (e.g. product agent ids).
+as JSON strings. Core **never** parses consumer keys (e.g. product agent ids). If the worker
+bootstraps from dispatch metadata (e.g. `customAgentId`), set `livekit.dispatch_metadata` or
+per-scenario `Dispatch` — see [portability.md](../docs/portability.md).
+
+### Voice, language & call recording
+
+The sim caller is **always voice** when `simulator.google_api_key` is set (Gemini Live TTS in the room).
+There is no separate “enable voice” toggle — only **which voice/language** and **whether to save WAV**.
+
+| Layer | What it does | Where to set |
+|-------|----------------|--------------|
+| **Sim speech** | Gemini Live speaks as the caller | `simulator.voice.*`, `simulator.language` |
+| **Persona locale** | Prompt + scenario language hint | `Scenario.metadata.locale`, optional `Persona.spec.language` |
+| **Vocal barge / backchannel** | Real speech WAV into sim mic (STT hears it) | Script `delivery: room_pcm` + `asset: voice.*` or `.agent-sim/cues/*.wav` |
+| **Call recording** | Stereo `conversation.wav` for replay (`lk-sim web`) | `observe.record_audio: true` |
+| **Soft judge** | Post-run rubric (not a hard CI gate by default) | `judge:` in config **and** scenario `PassCriteria` |
+
+Example — Vietnamese caller + local recording (template defaults are `en-US` / `UTC`):
+
+```yaml
+simulator:
+  google_api_key: "…"
+  language: "vi-VN"
+  voice:
+    model: "gemini-3.1-flash-live-preview"
+    voice: "Puck"          # any Gemini Live voice name your key supports
+    language: "vi-VN"
+
+judge:
+  model: "gemini-2.5-flash"
+  temperature: 0
+
+observe:
+  record_audio: true     # reports/<run-id>/conversation.wav — L=sim, R=agent
+  timezone: "Asia/Ho_Chi_Minh"
+  lk_transcription: true
+  # Optional — if flow/tool events are missing from logs, see portability.md:
+  # data_topics: ["myapp.flow"]
+  # tool_event_patterns: []
+```
+
+Per-scenario language override in JSONL: `"metadata":{"locale":"vi-VN"}` and/or
+`"Persona":{"spec":{"language":"vi-VN",…}}`.
+
+### Cue library aliases (optional)
+
+Drop custom WAVs in `.agent-sim/cues/` or add search paths / short names in config:
+
+```yaml
+cues:
+  dirs:
+    - media/noise          # relative to project root
+  aliases:
+    office: office_loop.wav
+```
+
+Scenario: `"asset":"office","delivery":"room_pcm"`. List built-ins + overrides: `lk-sim cues --root .`
 
 ---
 
@@ -100,9 +156,8 @@ lk-sim scenario-init my-case --root /path/to/target
 | `Dispatch` | no | Per-scenario opaque metadata JSON string |
 | `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`, `hang_ups`) |
 | `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
-| `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
 | `Assert` | no | tools / transcript / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, `llm_bool`) |
-| `Plugins` | no | Verify plugins only |
+| `Plugins` | no | Load local verify modules — see **Verify plugins** below |
 | `PassCriteria` | no | Soft LLM judge rubric |
 
 ### Caller character (Hamming-aligned)
@@ -136,6 +191,39 @@ lk-sim cues --root /path/to/target --resolve builtin:voice.barge_short
 ```
 
 WAV: **PCM16 mono @ 24 kHz**. Prefer `voice.*` for audible barge-in; noise for beds/bursts. Details: package `templates/cues/README.md`.
+
+### Verify plugins (custom Script checks)
+
+Extend `Script.verify` with project-specific checks on `events.jsonl` — no fork of the sim package.
+Full API: [docs/plugins.md](../docs/plugins.md).
+
+**1. Copy and edit the example**
+
+```bash
+cp templates/plugins/example_verify.py /path/to/target/.agent-sim/plugins/my_checks.py
+# or copy from the package after init: .agent-sim/plugins/example_verify.py
+```
+
+**2. Register the module in scenario JSONL**
+
+```jsonl
+{"kind":"Plugins","spec":{"modules":["my_checks"]}}
+```
+
+**3. Wire plugins on Script verify** (built-in checks still run first)
+
+```jsonl
+{"kind":"Script","spec":{"steps":[{"id":"bc","trigger":"agent_speaking","delay_ms":900,"say":"uh-huh","delivery":"gemini_text"}],"verify":{"require_during_agent_speech":true,"min_agent_finals_after_first_cue":1,"plugins":["example_backchannel_continue"],"plugin_options":{"example_backchannel_continue":{"min_agent_finals":1}}}}}
+```
+
+Discover loaded plugins:
+
+```bash
+lk-sim plugins --root /path/to/target
+# MCP: list_plugins(project_root=…)
+```
+
+Ship plugins from an installable package via `[project.entry-points."lk_sim.plugins"]` — see `docs/plugins.md`.
 
 ### Run
 
