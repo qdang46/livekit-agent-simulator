@@ -97,8 +97,10 @@ def web(
             open_browser=not no_open,
             blocking=True,
         )
-        # blocking returns after shutdown; print was useful if non-blocking
         _print({k: v for k, v in info.items() if k not in ("server", "thread")})
+    except KeyboardInterrupt:
+        typer.secho("\nStopped report UI.", fg=typer.colors.YELLOW)
+        raise typer.Exit(0)
     except (ConfigError, FileNotFoundError, OSError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(1)

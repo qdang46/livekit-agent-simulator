@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import signal
+import sys
 import threading
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -167,6 +169,57 @@ class ReportUIHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
+def _install_shutdown_handlers(httpd: ThreadingHTTPServer) -> list[Any]:
+    """Install platform handlers; return refs that must stay alive for process lifetime."""
+    keepalive: list[Any] = []
+
+    def _request_shutdown(signum: int | None = None, frame: Any | None = None) -> None:
+        del signum, frame
+        httpd.shutdown()
+
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        HandlerRoutine = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+
+        @HandlerRoutine
+        def _console_handler(ctrl_type: int) -> bool:
+            # CTRL_C_EVENT / CTRL_BREAK_EVENT — shutdown server; return False so a
+            # second Ctrl+C can still force-exit if shutdown is slow.
+            if ctrl_type in (0, 1):
+                httpd.shutdown()
+            return False
+
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, True)
+        keepalive.append(_console_handler)
+    else:
+        previous = signal.getsignal(signal.SIGINT)
+
+        def _sigint(signum: int | None = None, frame: Any | None = None) -> None:
+            del signum, frame
+            _request_shutdown()
+            signal.signal(signal.SIGINT, previous)
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGINT, _sigint)
+        keepalive.append(_sigint)
+
+    return keepalive
+
+
+def _serve_blocking(httpd: ThreadingHTTPServer) -> None:
+    keepalive = _install_shutdown_handlers(httpd)
+    try:
+        httpd.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        del keepalive
+
+
 def start_web_server(
     reports_dir: Path,
     *,
@@ -200,15 +253,6 @@ def start_web_server(
     path = f"/?run={run_id}" if run_id else "/"
     url = base + path
 
-    thread = threading.Thread(target=httpd.serve_forever, name="lk-sim-web", daemon=True)
-    thread.start()
-
-    if open_browser:
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
-
     info = {
         "url": url,
         "base_url": base,
@@ -219,13 +263,19 @@ def start_web_server(
         "reports_dir": str(reports_dir),
     }
 
-    if blocking:
+    if open_browser:
         try:
-            thread.join()
-        except KeyboardInterrupt:
-            httpd.shutdown()
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+    if blocking:
+        print(f"Open: {url}", flush=True)
+        _serve_blocking(httpd)
     else:
-        info["server"] = httpd  # caller may shutdown
+        thread = threading.Thread(target=httpd.serve_forever, name="lk-sim-web", daemon=True)
+        thread.start()
+        info["server"] = httpd
         info["thread"] = thread
 
     return info
