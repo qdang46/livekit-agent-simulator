@@ -512,7 +512,7 @@ Please don't take this the wrong way, but I do not accept outside contributions 
 
 ## License
 
-[MIT](https://opensource.org/licenses/MIT)
+[MIT](./LICENSE)
 
 ---
 
