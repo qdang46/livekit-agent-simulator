@@ -380,6 +380,8 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 for oc in scenario.asserts.outcomes:
                     if oc.type == "llm_bool" and oc.prompt:
                         criteria.append(f"[outcome:{oc.id}] {oc.prompt}")
+            from .gemini.judge import judge_run, judge_goals
+
             verdict = await judge_run(
                 cfg.judge,
                 cfg.simulator.google_api_key,
@@ -390,6 +392,54 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             writer.emit("judge.verdict", spec=verdict or {}, include_dialogue=False)
         except Exception as e:
             verdict = {"verdict": "error", "notes": f"{type(e).__name__}: {e}"}
+
+    # ── Post-run: goals_met assert (hard fail if judge LLM confirms caller missed goals) ─
+    if status in ("done", "failed") and scenario.asserts:
+        from .gemini.judge import judge_goals
+
+        for oc in scenario.asserts.outcomes or []:
+            if oc.type != "goals_met":
+                continue
+            goal_list = list(oc.goals) if oc.goals else [
+                g for g in (scenario.persona.get("goals") or []) if isinstance(g, str)
+            ]
+            if not goal_list:
+                continue
+            try:
+                goals_result = await judge_goals(
+                    cfg.judge, cfg.simulator.google_api_key,
+                    goal_list, oc.min_goals,
+                    writer.turn_metrics(),
+                )
+                gv = (goals_result or {}).get("verdict", "fail")
+                gs = int((goals_result or {}).get("score", 0))
+                goals_pass = gv == "pass" and gs >= 50
+                writer.emit(
+                    "assert.goals_met",
+                    spec={
+                        "outcome_id": oc.id,
+                        "min_goals": oc.min_goals,
+                        "goals": goal_list,
+                        "verdict": gv,
+                        "score": gs,
+                        "pass": goals_pass,
+                    },
+                    include_dialogue=False,
+                )
+                if not goals_pass:
+                    if status == "done":
+                        status = "failed"
+                    meta.setdefault("goals_failed", []).append(oc.id)
+            except Exception as e:
+                writer.emit(
+                    "assert.goals_met",
+                    spec={
+                        "outcome_id": oc.id,
+                        "error": f"{type(e).__name__}: {e}",
+                        "pass": False,
+                    },
+                    include_dialogue=False,
+                )
 
     summary = writer.finalize(status, meta=meta, verdict=verdict)
     summary.setdefault("caller_mode", caller_mode)

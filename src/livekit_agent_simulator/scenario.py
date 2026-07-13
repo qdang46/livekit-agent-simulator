@@ -228,10 +228,22 @@ class Scenario:
         return str(p_lang).strip() if p_lang else self.locale
 
     def persona_system_prompt(self) -> str:
-        """Build the Gemini Live system instruction for the simulated caller."""
+        """Build the Gemini Live system instruction for the simulated caller.
+
+        Follows Google Live API best practices: persona → numbered goals → guardrails.
+        Goals are a checklist; premature [END_CALL] is guarded in the prompt.
+        External verification via ``Assert.spec.outcomes[].type: goals_met`` runs
+        as a post-run LLM judge for independent confirmation (Hamming-style).
+        """
         p = self.persona
         locale = self.effective_locale()
+        goals_list = p.get("goals") or []
+        if isinstance(goals_list, str):
+            goals_list = [goals_list]
+        goals_list = [str(g).strip() for g in goals_list if str(g).strip()]
+
         lines = [
+            "## ROLE",
             "You are role-playing a HUMAN CALLER on a phone call with a voice assistant.",
             "You are NOT an assistant. Never offer help; you are the customer.",
             f"Speak only in the language/locale: {locale}.",
@@ -242,9 +254,16 @@ class Scenario:
             lines.append(f"Your name: {p['name']}.")
         if p.get("brief"):
             lines.append(f"Who you are and why you are calling: {p['brief']}")
-        if p.get("goals"):
-            goals = "; ".join(str(g) for g in p["goals"])
-            lines.append(f"Your goals for this call, in order: {goals}")
+        if goals_list:
+            lines.append("")
+            lines.append("## YOUR GOALS (complete each one before moving to the next)")
+            for i, g in enumerate(goals_list, 1):
+                lines.append(f"GOAL {i}: {g}")
+            lines.append("")
+            lines.append("IMPORTANT: You MUST work through ALL goals one by one.")
+            lines.append("Do NOT skip ahead to a later goal before the current one is addressed.")
+            lines.append("Do NOT say goodbye or [END_CALL] until you have addressed ALL goals.")
+            lines.append("If the agent cannot help with one goal, state it and move to the next.")
         if p.get("style"):
             lines.append(f"Speaking style: {p['style']}")
         traits = p.get("traits") or p.get("behaviors") or []
@@ -299,10 +318,13 @@ class Scenario:
             lines.append("Wait for the assistant to greet you first, then respond.")
         else:
             lines.append("You speak first: greet briefly and state why you are calling.")
-        lines.append(
-            "When all your goals are handled (or clearly cannot be), say a short goodbye "
-            "and end with the exact token [END_CALL]."
-        )
+        # Guardrails against premature end
+        lines.append("")
+        lines.append("## GUARDRAILS")
+        lines.append("Your job is to pursue your goals. Only end the call when ALL goals are done.")
+        lines.append("If you say goodbye or [END_CALL] early, the test will FAIL.")
+        lines.append("If the agent says something irrelevant, steer back to your goals.")
+        lines.append("When all goals are handled, say a short goodbye and end with [END_CALL].")
         return "\n".join(lines)
 
 

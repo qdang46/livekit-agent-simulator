@@ -25,8 +25,31 @@ async def judge_run(
     turns: list[dict[str, Any]],
     tool_events: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    return await _judge(judge_cfg, google_api_key, pass_criteria, turns, tool_events, goals_met=None)
+
+
+async def judge_goals(
+    judge_cfg: JudgeConfig,
+    google_api_key: str,
+    goals: list[str],
+    min_goals: int,
+    turns: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Judge whether the simulated caller stated/pursued at least min_goals goals before end."""
+    criteria = [f"The simulated caller stated or pursued the following goal(s) before the call ended: {goals}. Verify at least {min_goals} of {len(goals)} goals were explicitly mentioned or pursued."]
+    return await _judge(judge_cfg, google_api_key, criteria, turns, tool_events=[], goals_met=True)
+
+
+async def _judge(
+    judge_cfg: JudgeConfig,
+    google_api_key: str,
+    pass_criteria: list[str],
+    turns: list[dict[str, Any]],
+    tool_events: list[dict[str, Any]],
+    goals_met: bool | None = None,
+) -> dict[str, Any]:
     if not pass_criteria:
-        return {"verdict": "skipped", "notes": "Scenario has no PassCriteria."}
+        return {"verdict": "skipped", "notes": "No criteria."}
 
     transcript_lines = []
     for t in turns:
@@ -59,6 +82,7 @@ async def judge_run(
         + ("\n".join(transcript_lines) or "(empty)")
         + "\n\nTOOL SPANS:\n"
         + ("\n".join(tool_lines) or "(none)")
+        + ("\n\nNOTE: This is a goals_met check. Evaluate whether the CALLER (simulated human) stated or pursued each listed goal. Agent responses alone do not satisfy caller goals." if goals_met else "")
     )
 
     client = genai.Client(api_key=google_api_key)

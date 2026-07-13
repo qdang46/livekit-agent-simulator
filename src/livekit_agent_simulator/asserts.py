@@ -38,10 +38,11 @@ class OutcomeExpect:
       - recovery: agent re-engages after sim barge-in / interruption
       - latency: hard gates on turn_taking / TTFW / recovery percentiles (P1.3)
       - ended_by: assert which side ended the call (sim | agent | detect)
+      - goals_met: LLM judge checks caller stated/pursued N goals before [END_CALL]
     """
 
     id: str
-    type: str  # transcript_contains | llm_bool | recovery | latency | ended_by
+    type: str  # transcript_contains | llm_bool | recovery | latency | ended_by | goals_met
     phrases: tuple[str, ...] = ()
     prompt: str | None = None  # for llm_bool
     role: str = "any"
@@ -60,6 +61,10 @@ class OutcomeExpect:
     require_turn_samples: int = 0
     # ended_by: who must hang up first
     ended_by: str | None = None  # "sim" | "agent"
+    # goals_met: minimum number of caller goals that must be pursued before end.
+    min_goals: int = 0
+    # Optional explicit goals list (defaults to reading from scenario Persona goals).
+    goals: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -137,7 +142,7 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
         if not isinstance(raw, dict) or not raw.get("id"):
             raise ValueError(f"{path_label}: outcomes[{i}] needs id")
         otype = str(raw.get("type", "transcript_contains"))
-        if otype not in ("transcript_contains", "llm_bool", "recovery", "latency", "ended_by"):
+        if otype not in ("transcript_contains", "llm_bool", "recovery", "latency", "ended_by", "goals_met"):
             raise ValueError(f"{path_label}: outcomes[{i}].type unsupported: {otype}")
         phrases = raw.get("phrases") or raw.get("contains_any") or []
         if isinstance(phrases, str):
@@ -169,6 +174,10 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
                 raise ValueError(
                     f"{path_label}: outcomes[{i}] ended_by must be 'sim' | 'agent' | 'detect'"
                 )
+        mg = int(raw.get("min_goals", 1))
+        goals_raw = raw.get("goals") or ()
+        if isinstance(goals_raw, str):
+            goals_raw = [goals_raw]
         outcomes.append(
             OutcomeExpect(
                 id=str(raw["id"]),
@@ -191,6 +200,8 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
                 min_barge_recovery_rate=_opt_float(raw, "min_barge_recovery_rate"),
                 require_turn_samples=int(raw.get("require_turn_samples", 0) or 0),
                 ended_by=eb or (raw.get("ended_by") or raw.get("who")),
+                min_goals=mg,
+                goals=tuple(str(g) for g in goals_raw),
             )
         )
 
@@ -393,6 +404,17 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
             checks.append(_eval_latency_outcome(oc, events))
         elif oc.type == "ended_by":
             checks.append(_eval_ended_by_outcome(oc, events))
+        elif oc.type == "goals_met":
+            pending_llm.append({"id": oc.id, "prompt": oc.prompt or oc.id, "goals_met": True,
+                                "min_goals": oc.min_goals, "goals": list(oc.goals)})
+            checks.append({
+                "check": f"outcome:{oc.id}",
+                "pass": True,  # deferred to judge layer
+                "type": "goals_met",
+                "pending_judge": True,
+                "min_goals": oc.min_goals,
+                "goals": list(oc.goals),
+            })
         elif oc.type == "llm_bool":
             pending_llm.append({"id": oc.id, "prompt": oc.prompt or oc.id})
             checks.append(
