@@ -294,7 +294,7 @@ It adds a basic transcript Assert + recovery Assert (when barges present).
 
 There is **no** separate `run` command — always validate-then-run via `execute*`.
 
-MCP for Cursor / Claude / etc.:
+MCP for coding agents (Claude, Cursor, Windsurf, VS Code, …):
 
 ```json
 {

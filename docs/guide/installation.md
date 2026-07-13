@@ -40,7 +40,9 @@ Optional: coding tools already installed (Claude Code / Cursor / …) so the ins
 
 ## 1. Detect environment
 
-Run these first and adapt:
+Run these first and adapt.
+
+macOS / Linux (bash):
 
 ```bash
 uname -s
@@ -48,6 +50,14 @@ which lk-sim || true
 lk-sim --help 2>/dev/null | head -5 || true
 pwd
 # If the user said "this project", use the current workspace root as TARGET_ROOT
+```
+
+Windows (PowerShell — note: plain `cmd.exe` has no `Set-Location`/`&&`; prefer PowerShell):
+
+```powershell
+Get-Command lk-sim -ErrorAction SilentlyContinue
+lk-sim --help 2>$null | Select-Object -First 5
+Get-Location
 ```
 
 Set variables (agent should use absolute paths):
@@ -58,6 +68,11 @@ TARGET_ROOT="$(pwd)"   # or the path the user named
 
 # Optional pin (default installer = latest release)
 # LK_SIM_REF=v0.1.0
+```
+
+```powershell
+$TARGET_ROOT = (Get-Location).Path   # or the path the user named
+# Optional pin: $env:LK_SIM_REF = "v0.1.0"
 ```
 
 If `lk-sim --help` already works, skip §2 install and go to §3 init.
@@ -109,9 +124,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\lk-sim-install.ps
 # ... -File "$env:TEMP\lk-sim-install.ps1" -Ref v0.1.0 -Verify
 ```
 
+`install.ps1` flags (differ slightly from `install.sh`):
+
+| Flag | Meaning |
+|------|---------|
+| `-Verify` | Run post-install check (`lk-sim --help`) |
+| `-Ref vX.Y.Z` / `-Version` | Pin release tag (default: latest) |
+| `-NoMcp` | Skip auto MCP registration |
+| `-Uninstall` | Remove install |
+| `-Quiet` | Suppress info logs |
+
+Install locations: pack under `%LOCALAPPDATA%\lk-sim\current`, shim `lk-sim` under `%USERPROFILE%\.local\bin`.
+The installer prepends that dir to the **user** `PATH` automatically — but already-open terminals do not see it.
+If `lk-sim` is not found after install, open a **new** terminal, or for the current session:
+
+```powershell
+$env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+Get-Command lk-sim
+lk-sim --help | Select-Object -First 20
+```
+
 ### Installer success criteria
 
-- `command -v lk-sim` resolves
+- `command -v lk-sim` (bash) / `Get-Command lk-sim` (PowerShell) resolves
 - `lk-sim --help` exits 0 and lists: `init`, `preflight`, `execute`, `scenario-from-run`, `web`, `mcp`, …
 - Prefer not to use `uv run` / `pip install` for end users
 
@@ -146,6 +181,8 @@ $TARGET_ROOT/.agent-sim/
 ```
 
 And ensures `.agent-sim/` is listed in `$TARGET_ROOT/.gitignore`.
+
+**Idempotent:** re-running `init` does **not** overwrite existing `config.yaml`, scenarios, or reports — only creates missing scaffold files.
 
 **Success criteria:**
 
@@ -195,14 +232,17 @@ observe:
 
 **How the agent should obtain values:**
 
-1. Ask the user for missing secrets, **or**
-2. With user permission, read existing local-only files in the target repo (`.env`, `.env.local`, `~/.config/…`) and map:
-   - `LIVEKIT_URL` → `livekit.url`
-   - `LIVEKIT_API_KEY` → `livekit.api_key`
-   - `LIVEKIT_API_SECRET` → `livekit.api_secret`
-   - `GOOGLE_API_KEY` / `GEMINI_API_KEY` → `simulator.google_api_key`
-   - Worker dispatch name from target docs / `LIVEKIT_AGENT_NAME` / code constants (e.g. `*-local` vs prod name)
-3. Never print full secrets in chat logs if avoidable; confirm only that fields are **set**.
+1. **Try env first** (with user permission): read `.env` / `.env.local` in `TARGET_ROOT` and map keys below.
+2. **If any required field is still empty**, use **structured user questions** (§4.1) — do not invent values. Paste secrets into `config.yaml` or read `.env`; never put API keys in multiple-choice option labels.
+3. Never print full secrets in chat; confirm only that fields are **set**.
+
+| Env var (target repo) | `config.yaml` key |
+|-----------------------|-------------------|
+| `LIVEKIT_URL` | `livekit.url` |
+| `LIVEKIT_API_KEY` | `livekit.api_key` |
+| `LIVEKIT_API_SECRET` | `livekit.api_secret` |
+| `GOOGLE_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` | `simulator.google_api_key` |
+| `VOICE_AI_AGENT_NAME` (or worker docs) | `livekit.agent_name` |
 
 Per-scenario dispatch override (if the product needs opaque metadata):
 
@@ -212,13 +252,135 @@ Per-scenario dispatch override (if the product needs opaque metadata):
 
 More consumer wiring notes: [portability.md](../portability.md).
 
+### 4.1 Structured user questions (when env is empty or ambiguous)
+
+When setup is blocked on a **user decision**, collect answers via your host’s **structured ask-user**
+flow (multiple-choice form) if available; otherwise ask the same prompts in chat.
+**Not** for typing secrets — use this for **which repo**, **credential source**, **toggles**, and **optional wiring**.
+
+Rules:
+
+- **≤ 3 questions per round** (batch related choices).
+- Each question needs **≥ 2 options**; put the recommended default **first** and append `(Recommended)` to its label.
+- User can always pick **Other** for a custom path, `agent_name`, `customAgentId`, etc.
+- **Secrets** (`api_key`, `api_secret`, `google_api_key`): never list real values as options. Either read `.env` after user picks “read env”, or ask them to edit `config.yaml` / use **Other** for one-off paste.
+
+Payload shape below is **host-agnostic** — map fields to whatever your agent UI expects
+(e.g. a dedicated ask-user tool, MCP form, or plain numbered options in chat).
+
+#### Turn 1 — typical batch (after `init`, before editing config)
+
+```json
+{
+  "title": "lk-sim setup",
+  "questions": [
+    {
+      "id": "target_root",
+      "prompt": "Where should .agent-sim/ live? (LiveKit worker repo, not dashboard)",
+      "options": [
+        {"id": "worker", "label": "Worker repo — path with LIVEKIT_* in .env (Recommended)"},
+        {"id": "cwd", "label": "Current workspace folder"},
+        {"id": "other", "label": "Other — I'll type the absolute path in Other"}
+      ]
+    },
+    {
+      "id": "credentials",
+      "prompt": "How should I fill LiveKit URL, API key/secret, and Gemini key?",
+      "options": [
+        {"id": "read_env", "label": "Read from TARGET_ROOT/.env with my permission (Recommended if .env exists)"},
+        {"id": "i_edit_yaml", "label": "I'll paste secrets into .agent-sim/config.yaml myself"},
+        {"id": "other", "label": "Other — I'll provide values in Other / follow-up chat"}
+      ]
+    },
+    {
+      "id": "record_audio",
+      "prompt": "Enable local call recording for lk-sim web replay?",
+      "options": [
+        {"id": "yes", "label": "Yes — observe.record_audio: true (Recommended)"},
+        {"id": "no", "label": "No — skip conversation.wav"}
+      ]
+    }
+  ]
+}
+```
+
+**After answers:** write `config.yaml`. If `credentials=read_env`, map env vars (table above). If `i_edit_yaml`, stop and tell user which keys are still `YOUR_*` placeholders.
+
+**Gemini key hint** (chat or comment in yaml — not a multiple-choice option):
+
+> Create at [Google AI Studio](https://aistudio.google.com/apikey). Same key as worker `GOOGLE_API_KEY` is fine. Needs Gemini Live access for `gemini-3.1-flash-live-preview`.
+
+#### Turn 2 — only if still ambiguous (second batch, optional)
+
+```json
+{
+  "title": "lk-sim setup (optional)",
+  "questions": [
+    {
+      "id": "language",
+      "prompt": "Sim caller language / locale?",
+      "options": [
+        {"id": "en-US", "label": "en-US (Recommended)"},
+        {"id": "vi-VN", "label": "vi-VN"},
+        {"id": "ja-JP", "label": "ja-JP"},
+        {"id": "other", "label": "Other BCP-47 in Other"}
+      ]
+    },
+    {
+      "id": "dispatch_metadata",
+      "prompt": "Does your worker need opaque dispatch metadata (e.g. customAgentId)?",
+      "options": [
+        {"id": "no", "label": "No / not sure (Recommended for generic agents)"},
+        {"id": "yes_config", "label": "Yes — set livekit.dispatch_metadata in config.yaml"},
+        {"id": "yes_scenario", "label": "Yes — per-scenario Dispatch line in JSONL only"}
+      ]
+    },
+    {
+      "id": "run_smoke",
+      "prompt": "Run smoke execute now?",
+      "options": [
+        {"id": "preflight_only", "label": "Stop after preflight — I'll start the worker myself (Recommended)"},
+        {"id": "execute", "label": "Worker is already running — run execute smoke-hello"}
+      ]
+    }
+  ]
+}
+```
+
+#### Reference — what each bucket maps to
+
+**Order:** `TARGET_ROOT` → credentials → toggles → optional wiring → preflight → confirm execute.
+
+| Bucket | Ask user (structured or chat) | Maps to / action |
+|--------|----------------------|------------------|
+| **A. Target repo** | Which folder is `TARGET_ROOT` | `--root` on every command |
+| **B. Credentials** | Read `.env` vs user edits yaml | `livekit.*`, `simulator.google_api_key` |
+| **C. Toggles** | `record_audio`, language, timezone, judge | `observe.record_audio`, `simulator.language`, `observe.timezone`, `judge:` |
+| **D. Product wiring** | `customAgentId`, `data_topics`, `first_speaker` | `dispatch_metadata`, `observe.data_topics`, scenario `Execute` |
+| **E. Skip** | Worker start command, SIP, load test | Out of scope (§9) |
+| **F. After preflight** | `run_smoke` question or plain chat | `execute` only if user chose it or confirmed worker is up |
+
+Example yaml after **record_audio=yes** + **language=vi-VN**:
+
+```yaml
+simulator:
+  language: "vi-VN"
+  voice:
+    language: "vi-VN"
+observe:
+  record_audio: true
+  timezone: "Asia/Ho_Chi_Minh"
+```
+
+More on dispatch / data topics: [portability.md](../portability.md). Voice / cues / plugins after setup: `lk-sim guide`.
+
 ---
 
 ## 5. MCP registration (coding agents)
 
 Default installer registers MCP server name **`livekit-agent-simulator`** → command `lk-sim mcp` into detected tools (Claude Code, Cursor, Cline, Windsurf, VS Code Copilot, Gemini CLI, Amazon Q, OpenCode, Codex, Warp).
 
-If the user skipped MCP or tools were installed later, manual Cursor example:
+If the user skipped MCP or tools were installed later, manual MCP config example:
 
 ```json
 {
@@ -350,6 +512,8 @@ Mark setup complete only when **all** of these are true:
 
 ## 10. One-shot command sequence (copy for agents)
 
+### macOS / Linux (bash)
+
 ```bash
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
@@ -378,6 +542,35 @@ lk-sim preflight --root "$TARGET_ROOT"
 # lk-sim web --root "$TARGET_ROOT"
 ```
 
+### Windows (PowerShell)
+
+```powershell
+$ErrorActionPreference = "Stop"
+$env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+$TARGET_ROOT = (Get-Location).Path   # change if needed
+
+# 1) Install CLI (skip if already present)
+if (-not (Get-Command lk-sim -ErrorAction SilentlyContinue)) {
+  irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile "$env:TEMP\lk-sim-install.ps1"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\lk-sim-install.ps1" -Verify
+  $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+}
+lk-sim --help | Out-Null
+
+# 2) Scaffold target project
+lk-sim init --root $TARGET_ROOT
+
+# 3) STOP: fill secrets in $TARGET_ROOT\.agent-sim\config.yaml
+#    livekit.url / api_key / api_secret / agent_name
+#    simulator.google_api_key
+#    Then continue:
+
+lk-sim preflight --root $TARGET_ROOT
+# 4) Ensure voice agent worker is running with matching agent_name
+# lk-sim execute smoke-hello --root $TARGET_ROOT
+# lk-sim web --root $TARGET_ROOT
+```
+
 ---
 
 ## 11. Links
@@ -385,9 +578,10 @@ lk-sim preflight --root "$TARGET_ROOT"
 | Resource | URL |
 |----------|-----|
 | Repo | https://github.com/quangdang46/livekit-agent-simulator |
-| Installer (main) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh |
+| Installer (macOS/Linux) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh |
+| Installer (Windows) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1 |
 | This guide (raw) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md |
-| Ops guide | package `lk-sim guide` or `templates/GUIDE.md` |
+| Ops guide | package `lk-sim guide` or `templates/GUIDE.md` (voice, cues, plugins) |
 | Portability | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
 | Smoke notes | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/smoke-test.md |
 
