@@ -1,37 +1,37 @@
 # Known Problems & Research Items
 
-## Gemini "bắt máy" (SIP callee) trên LiveKit Cloud
+## Gemini "answering" calls (SIP callee) on LiveKit Cloud
 
-### Vấn đề
+### Problem
 
-Outbound SIP (`outbound_sip`) hiện tại: `call_to` = **DID của agent** → agent join room → bridge audio → Gemini nói chuyện được.
+Current `outbound_sip` flow: `call_to` = **agent's inbound DID** → agent joins room → audio bridge → Gemini converses.
 
-Nhưng nếu gọi **số điện thoại thật** (PSTN):
+But calling a **real PSTN number**:
 
 ```
-lk-sim dial +84xxxxxxxxx  ──►  Cloud Trunk  ──►  PSTN  ──►  Máy thật reo
-                                                          │
-                                                        Người nhấc máy
-                                                          │
-                                                        Worker nghe người, 
-                                                        Gemini không nghe ai
+lk-sim dial +84xxxxxxxxx  ──►  Cloud Trunk  ──►  PSTN  ──►  Real phone rings
+                                                              │
+                                                            Human picks up
+                                                              │
+                                                            Worker hears human,
+                                                            Gemini hears nothing
 ```
 
-Gemini chỉ "bắt máy" được khi cuộc gọi vào **room có Gemini**. Trên Cloud:
-- Agent có inbound DID + dispatch rule → agent-room
-- Gemini cần **inbound DID riêng + dispatch rule** → sim-room
-- Hiện tại chưa có DID route vào sim-room
+Gemini can only "answer" when the call lands in a **room Gemini is in**. On Cloud:
+- Agent has an inbound DID + dispatch rule → agent-room
+- Gemini needs a **separate inbound DID + dispatch rule** → sim-room
+- Currently no DID is provisioned to route into sim-room
 
-### Giải pháp tiềm năng
+### Potential solutions
 
-| Hướng | Mô tả | Cần |
+| Approach | Description | Requires |
 |---|---|---|
-| **DID route sim-room** | Mua số/DID + dispatch rule trỏ sim-room | Provisioning LiveKit |
-| **Self-host SIP + sip-to-ai** | LiveKit SIP docker local + in-process callee | Docker + vendored `sip-to-ai` |
-| **Twilio SIP trunk hairpin** | Dùng Twilio routing quay vào sim-room | Twilio config |
+| **DID routing to sim-room** | Buy a number / DID + dispatch rule pointing to sim-room | LiveKit provisioning |
+| **Self-host SIP + sip-to-ai** | LiveKit SIP docker local + in-process callee | Docker + vendored `sip-to-ai` Apache-2.0 code |
+| **Twilio SIP trunk hairpin** | Twilio routing loops back into sim-room | Twilio config |
 
-### Liên quan
+### Related references
 
-- `docs/plans/PLAN-20260713-simleg-refactor.md` (T6 vendor sip-to-ai)
-- `docs/telephony.md`
-- `references/sip-to-ai/` (clone tham khảo, Apache-2.0)
+- Plan: `docs/plans/PLAN-20260713-simleg-refactor.md` (T6 vendor sip-to-ai)
+- Telephony docs: `docs/telephony.md`
+- Cloned ref: `references/sip-to-ai/` (Apache-2.0 licensed SIP/RTP stack)
