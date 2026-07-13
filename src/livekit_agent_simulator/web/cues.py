@@ -22,10 +22,18 @@ from .report_time import (
     MARKER_SCRIPT_CUE,
     MARKER_SILENCE,
     MARKER_SILENCE_WAIT,
+    MARKER_TOOL,
+    MARKER_TOOL_ERROR,
     _load_events,
     _load_json,
     _resolve_audio_t0_ms,
     _wav_duration_ms,
+)
+from .tool_events import (
+    _build_session_summary,
+    _build_tool_spans,
+    _build_tool_summary,
+    _extract_chat_history,
 )
 from .speech_origin import _synthetic_script_barge_cues, _tag_cues_with_markers
 from .transcript_cues import _build_transcript_cues
@@ -38,6 +46,8 @@ __all__ = [
     "MARKER_SILENCE",
     "MARKER_INTERRUPTION",
     "MARKER_RECOVERY",
+    "MARKER_TOOL",
+    "MARKER_TOOL_ERROR",
     "build_cues_payload",
     "write_cues_json",
 ]
@@ -62,6 +72,7 @@ def build_cues_payload(report_dir: Path) -> dict[str, Any]:
 
     t0 = _resolve_audio_t0_ms(meta, events)
     cues = _build_transcript_cues(events, t0, duration_ms)
+    tool_events = _build_tool_spans(events, t0, duration_ms)
     markers = _build_markers(events, t0, duration_ms)
     _tag_cues_with_markers(cues, markers)
     # Guarantee inject-time cards even when STT misses or mis-attributes barge speech.
@@ -98,6 +109,16 @@ def build_cues_payload(report_dir: Path) -> dict[str, Any]:
         t = str(m["type"])
         counts[t] = counts.get(t, 0) + 1
 
+    config_snapshot = meta.get("config_snapshot") if isinstance(meta.get("config_snapshot"), dict) else {}
+    observe_gaps = config_snapshot.get("observe_gaps")
+    if not isinstance(observe_gaps, list):
+        observe = config_snapshot.get("observe") if isinstance(config_snapshot.get("observe"), dict) else {}
+        inner = observe.get("observe_gaps")
+        observe_gaps = inner if isinstance(inner, list) else []
+
+    summary_dict = summary if isinstance(summary, dict) else {}
+    tool_summary = _build_tool_summary(tool_events, summary_dict)
+
     return {
         "run_id": run_id,
         "scenario_id": meta.get("scenario_id") or summary.get("scenario_id"),
@@ -114,6 +135,11 @@ def build_cues_payload(report_dir: Path) -> dict[str, Any]:
         "assert_verify": assert_verify,
         "caller": {"behavior_summary": behavior_summary} if behavior_summary is not None else None,
         "behavior_summary": behavior_summary,
+        "tool_events": tool_events,
+        "tool_summary": tool_summary,
+        "session_summary": _build_session_summary(events, t0, duration_ms),
+        "chat_history": _extract_chat_history(events),
+        "observe_gaps": observe_gaps,
     }
 
 

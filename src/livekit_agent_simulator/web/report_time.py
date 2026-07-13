@@ -14,6 +14,8 @@ MARKER_SILENCE_WAIT = "silence_wait"
 MARKER_SILENCE = "silence"
 MARKER_INTERRUPTION = "interruption"
 MARKER_RECOVERY = "recovery"
+MARKER_TOOL = "tool"
+MARKER_TOOL_ERROR = "tool_error"
 
 def _wav_duration_ms(path: Path) -> int | None:
     if not path.exists():

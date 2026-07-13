@@ -337,7 +337,8 @@ lk-sim log <run-id> --kind "sim.script*" --root /path/to/target
 lk-sim runs --root /path/to/target
 lk-sim web --root /path/to/target              # newest run
 lk-sim web <run-id> --root /path/to/target     # specific run
-# Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for barge / silence / recovery
+# Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for barge / silence / recovery / tools
+# Middle column shows agent actions (script cues + tool cards with args/output when L3 enabled)
 ```
 
 No Node/Vite on the user machine. Player assets ship inside the package.

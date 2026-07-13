@@ -83,12 +83,16 @@ class ReportUIHandler(SimpleHTTPRequestHandler):
                         summary = json.loads(sp.read_text(encoding="utf-8"))
                     except json.JSONDecodeError:
                         summary = {}
+                tool_count = summary.get("tool_calls")
+                if tool_count is None and isinstance(summary.get("metrics"), dict):
+                    tool_count = summary["metrics"].get("tool_calls")
                 runs.append(
                     {
                         "run_id": rid,
                         "status": summary.get("status"),
                         "duration_ms": summary.get("duration_ms"),
                         "turn_count": summary.get("turn_count"),
+                        "tool_count": tool_count,
                         "has_audio": (rd / "conversation.wav").exists(),
                     }
                 )

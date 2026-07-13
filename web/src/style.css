@@ -25,6 +25,8 @@
   --mk-silence: #f59e0b;
   --mk-interrupt: #fb923c;
   --mk-recovery: #34d399;
+  --mk-tool: #8b5cf6;
+  --mk-tool-error: #f87171;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -60,6 +62,8 @@
     --mk-silence: #f59e0b;
     --mk-interrupt: #ea580c;
     --mk-recovery: #059669;
+    --mk-tool: #7c3aed;
+    --mk-tool-error: #dc2626;
   }
 }
 
@@ -283,6 +287,12 @@ audio {
 .timeline-band.recovery {
   background: var(--mk-recovery);
 }
+.timeline-band.tool {
+  background: var(--mk-tool);
+}
+.timeline-band.tool_error {
+  background: var(--mk-tool-error);
+}
 
 .timeline-playhead {
   position: absolute;
@@ -336,6 +346,12 @@ audio {
 .swatch.recovery {
   background: var(--mk-recovery);
 }
+.swatch.tool {
+  background: var(--mk-tool);
+}
+.swatch.tool_error {
+  background: var(--mk-tool-error);
+}
 
 /* Verify summary chips */
 .verify-bar {
@@ -362,6 +378,16 @@ audio {
 .chip.fail {
   border-color: color-mix(in srgb, var(--mk-barge) 55%, var(--border));
   color: var(--mk-barge);
+}
+
+.chip.tool {
+  border-color: color-mix(in srgb, var(--mk-tool) 55%, var(--border));
+  color: var(--mk-tool);
+}
+
+.chip.warn {
+  border-color: color-mix(in srgb, var(--mk-silence-wait) 55%, var(--border));
+  color: var(--mk-silence-wait);
 }
 
 .transcript-panel {
@@ -498,6 +524,7 @@ audio {
 .cue-row.role-script-barge .cue-card,
 .cue-row.role-script-cue .cue-card,
 .cue-row.marker .cue-card,
+.cue-row.tool-row .cue-card,
 .cue-row.role-other .cue-card {
   grid-column: 2;
 }
@@ -733,6 +760,151 @@ audio {
   background: color-mix(in srgb, var(--mk-recovery) 12%, var(--panel));
 }
 
+.cue-card.tool {
+  border-color: var(--mk-tool);
+  background: color-mix(in srgb, var(--mk-tool) 10%, var(--panel));
+  border-left: 4px solid var(--mk-tool);
+}
+
+.cue-card.tool.tool-error {
+  border-color: var(--mk-tool-error);
+  background: color-mix(in srgb, var(--mk-tool-error) 12%, var(--panel));
+  border-left-color: var(--mk-tool-error);
+}
+
+.tool-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  font-size: 0.92rem;
+  margin-bottom: 0.35rem;
+}
+
+.tool-block {
+  margin-top: 0.35rem;
+}
+
+.tool-block-toggle {
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tool-block-body {
+  margin: 0.25rem 0 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  max-height: 5.5rem;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-block.expanded .tool-block-body {
+  max-height: none;
+}
+
+.tool-error-banner {
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mk-tool-error) 18%, var(--panel));
+  color: var(--mk-tool-error);
+  font-size: 0.8rem;
+}
+
+.cue-row.tool-row.active .cue-card {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--mk-tool) 55%, transparent),
+    0 4px 14px color-mix(in srgb, var(--mk-tool) 18%, transparent);
+}
+
+.cue-row.tool-error.active .cue-card {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--mk-tool-error) 55%, transparent),
+    0 4px 14px color-mix(in srgb, var(--mk-tool-error) 18%, transparent);
+}
+
+.role.tool-type.tool {
+  color: var(--mk-tool);
+}
+.role.tool-type.tool-error {
+  color: var(--mk-tool-error);
+}
+
+.tag.tool {
+  color: var(--mk-tool);
+  border-color: color-mix(in srgb, var(--mk-tool) 50%, var(--border));
+}
+.tag.tool_error {
+  color: var(--mk-tool-error);
+  border-color: color-mix(in srgb, var(--mk-tool-error) 50%, var(--border));
+}
+
+.session-footer {
+  margin-top: 1.25rem;
+}
+
+.session-details {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 0.55rem 0.85rem;
+}
+
+.session-summary-toggle {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.session-details-body {
+  margin-top: 0.65rem;
+  font-size: 0.85rem;
+}
+
+.session-details-body h3 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.session-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.session-list li {
+  margin: 0.2rem 0;
+}
+
+.session-errors li {
+  color: var(--mk-tool-error);
+}
+
+.session-usage-json {
+  margin: 0;
+  padding: 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 0.72rem;
+  overflow-x: auto;
+  max-height: 12rem;
+}
+
 .cue-row.marker.active .cue-card {
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--active) 75%, transparent),
@@ -924,6 +1096,7 @@ audio {
   .cue-row.role-script-barge .cue-card,
   .cue-row.role-script-cue .cue-card,
   .cue-row.marker .cue-card,
+  .cue-row.tool-row .cue-card,
   .cue-row.role-other .cue-card {
     grid-column: 1;
   }

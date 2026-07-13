@@ -15,6 +15,7 @@ from .report_time import (
     _mono_to_audio_ms,
 )
 from .speech_origin import _text_overlap
+from .tool_events import _build_tool_spans, _tool_spans_to_markers
 
 def _collect_script_injects(
     events: list[dict[str, Any]],
@@ -235,6 +236,9 @@ def _build_markers(
                 "after_barge_ms": barge_ms,
             }
         )
+
+    tool_spans = _build_tool_spans(events, t0, duration_ms)
+    markers.extend(_tool_spans_to_markers(tool_spans))
 
     markers.sort(key=lambda m: (m["start_ms"], m["type"]))
     return markers

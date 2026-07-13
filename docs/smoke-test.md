@@ -34,7 +34,8 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim execute smoke-hello
 uv run --directory /path/to/livekit-agent-simulator lk-sim report <run-id>
 uv run --directory /path/to/livekit-agent-simulator lk-sim log <run-id> --kind "transcript.*"
 uv run --directory /path/to/livekit-agent-simulator lk-sim log <run-id> --kind "tool.*"
-```
+uv run --directory /path/to/livekit-agent-simulator lk-sim web --root .
+# Open the run in the browser — tool cards + violet timeline bands when tool events exist
 
 ## What success looks like
 

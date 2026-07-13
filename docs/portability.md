@@ -16,6 +16,7 @@ folder; the Python package never imports consumer application code.
 | **Dedupe** | Multiple sources (sim.gemini, lk.transcription, data topics) merged with source priority so turn count stays accurate. |
 | **L3 session** | `lk.agent.session` passive events + final `getChatHistory` / `getSessionUsage` snapshot for LiveKit Agents SDK workers. |
 | **Tools** | Automatic SDK `tool.start` / `tool.end` / `tool.error`; optional `observe.tool_event_patterns` fallback for custom agents. |
+| **Report player** | `lk-sim web` — stereo audio + transcript sync; tool bands/cards + session footer when L3 events exist. |
 
 ## Per-target setup (in `<repo>/.agent-sim/`)
 
