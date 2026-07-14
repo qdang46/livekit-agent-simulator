@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from ..paths import package_templates_dir
+from ..paths import package_web_dir
 from .cues import build_cues_payload, write_cues_json
 
 DEFAULT_HOST = "127.0.0.1"
@@ -21,21 +21,8 @@ DEFAULT_PORT = 8765
 
 
 def _player_dir() -> Path:
-    """Bundled static assets for ``lk-sim web`` (wheel / release).
-
-    Search order:
-    1. ``templates/report-player`` (staged by CI / ``scripts/bundle_report_player.py``)
-    2. ``web/dist`` (editable checkout after ``pnpm --dir web build`` only)
-    """
-    bundled = package_templates_dir() / "report-player"
-    if (bundled / "index.html").is_file():
-        return bundled
-    repo_templates = package_templates_dir()
-    repo_root = repo_templates.parent
-    dev_dist = repo_root / "web" / "dist"
-    if (dev_dist / "index.html").is_file():
-        return dev_dist
-    return bundled
+    """Built static assets for ``lk-sim web`` (wheel ``web_static`` or checkout ``web/dist``)."""
+    return package_web_dir()
 
 
 def list_run_ids(reports_dir: Path) -> list[str]:
@@ -97,12 +84,22 @@ class ReportUIHandler(SimpleHTTPRequestHandler):
                         summary = json.loads(sp.read_text(encoding="utf-8"))
                     except json.JSONDecodeError:
                         summary = {}
+                scenario_id = summary.get("scenario_id")
+                mp = rd / "meta.json"
+                if mp.exists():
+                    try:
+                        meta = json.loads(mp.read_text(encoding="utf-8"))
+                        if not scenario_id:
+                            scenario_id = meta.get("scenario_id")
+                    except json.JSONDecodeError:
+                        pass
                 tool_count = summary.get("tool_calls")
                 if tool_count is None and isinstance(summary.get("metrics"), dict):
                     tool_count = summary["metrics"].get("tool_calls")
                 runs.append(
                     {
                         "run_id": rid,
+                        "scenario_id": scenario_id,
                         "status": summary.get("status"),
                         "duration_ms": summary.get("duration_ms"),
                         "turn_count": summary.get("turn_count"),
@@ -252,15 +249,14 @@ def start_web_server(
     player_dir = _player_dir()
     if not (player_dir / "index.html").exists():
         raise FileNotFoundError(
-            f"Report player assets missing: {player_dir}/index.html — "
+            f"Web UI assets missing: {player_dir}/index.html — "
             "maintainers: pnpm --dir web install && pnpm --dir web build "
-            "(then python scripts/bundle_report_player.py before uv build; "
+            "(CI attaches web/dist into the wheel as web_static; "
             "or use pnpm --dir web dev with lk-sim web in another terminal)"
         )
 
     runs = list_run_ids(reports_dir)
-    if run_id is None and runs:
-        run_id = runs[0]
+    # Open home list by default; only deep-link when run_id is explicit.
     if run_id:
         rd = reports_dir / run_id
         if rd.is_dir():

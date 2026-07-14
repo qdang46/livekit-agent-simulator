@@ -35,9 +35,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/livekit_agent_simulator"]
 
-# Ship scaffold + cue assets with the installed package (not only monorepo checkout).
+# Ship scaffold + cue assets + Vite web UI with the installed package.
+# CI runs ``pnpm --dir web build`` before ``uv build`` so ``web/dist`` exists.
 [tool.hatch.build.targets.wheel.force-include]
 "templates" = "livekit_agent_simulator/templates"
+"web/dist" = "livekit_agent_simulator/web_static"
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -1,5 +1,6 @@
 export type RunSummary = {
   run_id: string;
+  scenario_id?: string | null;
   status?: string;
   duration_ms?: number;
   turn_count?: number;

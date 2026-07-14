@@ -10,10 +10,9 @@ build/
 *.sqlite-journal
 .env
 
-# Vite report player — source in web/; built output is gitignored
+# Vite web UI — source in web/; built output is gitignored (CI attaches into wheel)
 web/node_modules/
 web/dist/
-templates/report-player/
 
 # Cloned reference repos (telephony plan prior art)
 references/

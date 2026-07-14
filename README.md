@@ -227,14 +227,13 @@ uv run lk-sim --help
 
 Requires **Python 3.10–3.13**.
 
-### Report player (maintainers)
+### Web UI (maintainers)
 
-Users never build this — CI packs it. Source: `web/` (standard Vite → `web/dist/`).
+Users never build this — CI packs `web/dist` into the wheel as `web_static`. Source: `web/`.
 
 ```bash
 pnpm --dir web install
-pnpm --dir web build                    # → web/dist/
-python scripts/bundle_report_player.py  # → templates/report-player/ (wheel only)
+pnpm --dir web build                    # → web/dist/ (attached by Hatch on uv build)
 pnpm --dir web dev                      # HMR; proxy /api + /runs → lk-sim web :8765
 ```
 
@@ -392,7 +391,7 @@ src/livekit_agent_simulator/
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| [CI](.github/workflows/ci.yml) | PR / push → `main` | report-player build, `pytest` (3.10 + 3.12), `lk-sim --help` |
+| [CI](.github/workflows/ci.yml) | PR / push → `main` | web UI build, `pytest` (3.10 + 3.12), `lk-sim --help` |
 | [Release](.github/workflows/release.yml) | tag `v*` | pytest → wheel → portable packs (win/linux/mac) → GitHub Release |
 
 ```bash

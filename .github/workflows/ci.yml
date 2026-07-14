@@ -37,14 +37,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Build report player
+      - name: Build web UI
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
-
-      - name: Stage report player for wheel
-        run: python scripts/bundle_report_player.py
+          test -f dist/index.html
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -76,7 +74,7 @@ jobs:
             echo ""
             echo "| Check | Status |"
             echo "|-------|--------|"
-            echo "| report player (Vite) | required |"
+            echo "| web UI (Vite → web/dist) | required |"
             echo "| pytest (3.10, 3.12) | required |"
             echo "| lk-sim --help | required |"
             echo ""

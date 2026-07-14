@@ -25,16 +25,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Build report player
+      - name: Build web UI
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
-
-      - name: Stage report player for wheel
-        run: |
-          python scripts/bundle_report_player.py
-          test -f templates/report-player/index.html
+          test -f dist/index.html
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -58,7 +54,7 @@ jobs:
           whl = next(Path("dist").glob("*.whl"))
           with zipfile.ZipFile(whl) as z:
               names = z.namelist()
-          assert any("report-player/index.html" in n for n in names), names[:30]
+          assert any("web_static/index.html" in n for n in names), names[:30]
           print("wheel ok", whl)
           PY
 

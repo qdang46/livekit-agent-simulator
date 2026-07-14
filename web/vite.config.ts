@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 
-/** Standard Vite app: build → web/dist; CI copies dist into the Python wheel via scripts/bundle_report_player.py */
+/** Standard Vite app: build → web/dist; CI packs dist into the wheel as web_static */
 export default defineConfig({
   root: ".",
   base: "/",

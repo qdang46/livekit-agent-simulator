@@ -1045,11 +1045,34 @@ audio {
   color: var(--muted);
 }
 
-/* Run list */
+/* Scenario + run list */
+.scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin: 1rem 0;
+}
+
+.scenario-group {
+  margin: 0;
+}
+
+.scenario-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0 0 0.35rem;
+  color: var(--text);
+}
+
+.scenario-count {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
 .run-list {
   list-style: none;
   padding: 0;
-  margin: 1rem 0;
+  margin: 0;
 }
 
 .run-list li {

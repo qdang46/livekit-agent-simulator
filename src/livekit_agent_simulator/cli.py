@@ -79,7 +79,7 @@ def guide() -> None:
 def web(
     run_id: Optional[str] = typer.Argument(
         None,
-        help="Run id under .agent-sim/reports/ (default: newest)",
+        help="Run id under .agent-sim/reports/ (default: home list of all runs)",
     ),
     port: int = typer.Option(8765, "--port", "-p"),
     host: str = typer.Option("127.0.0.1", "--host"),

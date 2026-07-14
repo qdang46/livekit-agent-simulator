@@ -1,7 +1,7 @@
-# lk-sim report player (Vite + TypeScript)
+# lk-sim web UI (Vite + TypeScript)
 
-Standard Vite layout. Built assets are **not** committed — CI stages `dist/` into
-`templates/report-player/` for the Python wheel.
+Standard Vite layout. CI builds `web/dist/` and Hatch force-includes it into the
+wheel as `livekit_agent_simulator/web_static/`. Built assets are **not** committed.
 
 ## Dev (HMR)
 
@@ -27,13 +27,8 @@ pnpm install
 pnpm build          # → web/dist/
 ```
 
-For a local wheel or to match CI:
-
-```bash
-python ../scripts/bundle_report_player.py   # → templates/report-player/
-```
-
-`lk-sim web` also accepts `web/dist/` directly in an editable checkout (no bundle step).
+Then `uv build` (or release CI) packs `web/dist` into the wheel as `web_static`.
+Editable checkouts also serve `web/dist` directly via `lk-sim web`.
 
 ## Layout
 
