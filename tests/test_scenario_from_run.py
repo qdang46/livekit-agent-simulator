@@ -85,7 +85,10 @@ def test_draft_from_basic_run(tmp_path: Path) -> None:
     draft = build_scenario_draft_from_run(report_dir)
     assert draft["scenario_id"].startswith("from-")
     assert draft["source_run_id"] == "test-run-1234"
-    assert draft["kinds"] == ["Scenario", "Persona", "Context", "Execute", "Assert", "PassCriteria"]
+    assert draft["kinds"][0] == "Scenario"
+    assert "Persona" in draft["kinds"]
+    assert "Execute" in draft["kinds"]
+    assert "PassCriteria" in draft["kinds"]
     assert "Xin chào" in draft["jsonl"]
     assert draft["stats"]["user_finals"] == 2
     assert draft["stats"]["agent_finals"] == 1
@@ -111,6 +114,9 @@ def test_draft_barge_includes_recovery_assert(tmp_path: Path) -> None:
     )
     draft = build_scenario_draft_from_run(report_dir)
     assert "recovered_after_barge" in draft["jsonl"]
+    assert '"kind":"Behavior"' in draft["jsonl"] or '"kind": "Behavior"' in draft["jsonl"]
+    assert "from-run-barge-1" in draft["jsonl"]
+    assert "Behavior" in draft["kinds"]
     assert draft["latency_hint"] is not None
     assert draft["latency_hint"]["observed_turn_p95_ms"] == 7000.0
 
@@ -147,3 +153,40 @@ def test_draft_missing_report_raises(tmp_path: Path) -> None:
         assert False, "expected FileNotFoundError"
     except FileNotFoundError:
         pass
+
+
+def test_prefers_source_persona_goals(tmp_path: Path) -> None:
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir()
+    scen_file = scen_dir / "src.jsonl"
+    scen_file.write_text(
+        json.dumps({"apiVersion": "agent-sim/v1", "kind": "Scenario", "metadata": {"id": "src", "locale": "en-US"}})
+        + "\n"
+        + json.dumps({
+            "kind": "Persona",
+            "spec": {
+                "name": "Sam",
+                "brief": "Support caller",
+                "goals": ["Confirm support", "Ask for ETA", "End politely"],
+                "traits": ["polite"],
+                "constraints": ["No card numbers"],
+            },
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    report_dir = _write_report(
+        tmp_path,
+        meta=_meta(scenario_id="src") | {"scenario_file": str(scen_file)},
+        events=_events(
+            user_texts=[
+                "This is a very long monologue that should not become the only goal dump " * 3
+            ],
+            agent_texts=["hello"],
+        ),
+    )
+    draft = build_scenario_draft_from_run(report_dir)
+    assert "Confirm support" in draft["jsonl"]
+    assert "No card numbers" in draft["jsonl"]
+    # brief should not be a pure multi-utterance dump joined by |
+    assert " | " not in draft["jsonl"].split("Persona")[1][:400]

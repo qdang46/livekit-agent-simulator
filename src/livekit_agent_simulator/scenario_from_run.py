@@ -133,6 +133,23 @@ def _pass_criteria_from_source(scenario_file: str | None) -> list[str]:
     return []
 
 
+def _goal_from_utterance(text: str) -> str:
+    """Turn a transcript line into a short job-to-be-done (not a monologue)."""
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    low = t.lower()
+    for pfx in ("um ", "uh ", "well ", "so ", "ok ", "okay "):
+        if low.startswith(pfx):
+            t = t[len(pfx):].strip()
+            low = t.lower()
+            break
+    if len(t) > 100:
+        t = t[:97] + "…"
+    return t
+
+
+
 def build_scenario_draft_from_run(
     report_dir: Path | str,
     *,
@@ -221,21 +238,39 @@ def build_scenario_draft_from_run(
     if not isinstance(constraints, list):
         constraints = []
 
-    goals: list[str] = []
-    for t in user_texts[:3]:
-        goals.append(t[:160] + ("…" if len(t) > 160 else ""))
+    # Prefer original persona goals (character contract) over dumping raw transcript lines.
+    goals = []
+    src_goals = src_persona.get("goals") or []
+    if isinstance(src_goals, str):
+        src_goals = [src_goals]
+    if isinstance(src_goals, list):
+        goals = [str(g).strip() for g in src_goals if str(g).strip()][:6]
     if not goals:
-        goals = ["Revisit the situation observed in the source run", "End the call politely"]
+        # Synthesize short job-to-be-done bullets (not full utterances).
+        for ut in user_texts[:3]:
+            g = _goal_from_utterance(ut)
+            if g and g not in goals:
+                goals.append(g)
+    if not goals:
+        goals = [
+            "Revisit the situation observed in the source run",
+            "End the call politely",
+        ]
 
-    snippet = " | ".join(user_texts[:4])[:400]
+    # Brief: short character, not monologue dump of all caller lines.
     brief_bits = [
         f"Promoted from run `{source_run_id}` (source scenario `{source_scenario}`).",
         "Replay a similar caller path; stay natural and spoken.",
     ]
-    if snippet:
-        brief_bits.append(f"Caller said approximately: {snippet}")
     if src_persona.get("brief"):
-        brief_bits.append(f"Original brief (reference): {_redact(str(src_persona['brief'])[:300])}")
+        brief_bits.append(
+            f"Original brief (reference): {_redact(str(src_persona['brief'])[:220])}"
+        )
+    elif user_texts:
+        brief_bits.append(
+            f"Opening intent (approx): {_redact(user_texts[0][:140])}"
+            + ("…" if len(user_texts[0]) > 140 else "")
+        )
     brief = " ".join(brief_bits)
 
     metrics = summary.get("metrics") if isinstance(summary.get("metrics"), dict) else {}
@@ -260,6 +295,7 @@ def build_scenario_draft_from_run(
                 "phrases": ["a", "e", "i", "o", "u"],
             }
         )
+    behavior_spec: dict[str, Any] | None = None
     if barge_count > 0:
         outcomes.append(
             {
@@ -269,9 +305,28 @@ def build_scenario_draft_from_run(
                 "min_interruptions": 0,
             }
         )
+        # Deterministic interaction (not prompt-only): one correction barge.
+        say = "Wait — one second —"
+        for ut in user_texts:
+            # Prefer a short user correction-like line if present
+            if len(ut) <= 48 and any(
+                k in ut.lower() for k in ("wait", "no", "hold", "sorry", "khoan", "đợi")
+            ):
+                say = ut[:80]
+                break
+        behavior_spec = {
+            "barge_ins": [
+                {
+                    "id": "from-run-barge-1",
+                    "after_agent_ms": 700,
+                    "say": say,
+                    "class": "correction",
+                    "with_blip": True,
+                }
+            ]
+        }
         warnings.append(
-            f"Source run had barge_count={barge_count}; recovery Assert added. "
-            "Re-add Script/Behavior barge cues if you need deterministic cut-ins."
+            f"Source run had barge_count={barge_count}; recovery Assert + Behavior.barge_ins added."
         )
 
     # optional latency comment values from metrics (not auto-assert — too tight for cold starts)
@@ -384,6 +439,14 @@ def build_scenario_draft_from_run(
         lines.append(
             json.dumps(
                 {"kind": "Dispatch", "spec": {"metadata": dispatch_md}},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+    if behavior_spec:
+        lines.append(
+            json.dumps(
+                {"kind": "Behavior", "spec": behavior_spec},
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
