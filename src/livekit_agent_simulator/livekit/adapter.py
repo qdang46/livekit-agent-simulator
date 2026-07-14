@@ -431,7 +431,7 @@ class LiveKitAdapter:
         sip_identity: str,
         isolation: str = "mute_and_unsubscribe",
     ) -> dict[str, Any]:
-        """Reduce handset audio after human answer (human-pickup / outbound_sip).
+        """Reduce handset audio after human answer (outbound_human_pickup).
 
         ``mute_and_unsubscribe`` (default): mute SIP uplink + deny subscribe so the
         handset does not hear agent/Gemini. ``remove`` kicks the SIP leg (risky).

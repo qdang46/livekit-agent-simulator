@@ -54,7 +54,7 @@ observe:
 #   aliases:
 #     office: office_loop.wav # short name → file under .agent-sim/cues/ or dirs
 
-# Optional LiveKit SIP defaults for inbound_sip / outbound_sip / outbound_sim_callee.
+# Optional LiveKit SIP defaults for inbound_sip / outbound_human_pickup / outbound_sim_callee.
 # Mode is NEVER set here — use scenario {"kind":"Caller","spec":{"mode":"…"}} instead.
 # See docs/telephony.md. Omit this whole block for WebRTC-only targets.
 # telephony:
@@ -65,6 +65,6 @@ observe:
 #   prepare_ms: 3000
 #   wait_until_answered: true
 #   krisp_enabled: false
-#   handset_isolation: mute_and_unsubscribe  # outbound_sip after human answers
+#   handset_isolation: mute_and_unsubscribe  # outbound_human_pickup after human answers
 #   # agent_room: "fixed-inbound-room"     # optional if dispatch rule room is known
 #   # agent_room_name_template: "call-{run_id}"

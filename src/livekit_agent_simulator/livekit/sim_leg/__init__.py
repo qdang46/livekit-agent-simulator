@@ -7,8 +7,8 @@ Factory: ``sim_leg_factory(mode)``.
 
 from .agent_dials import AgentDialsSimLeg
 from .factory import sim_leg_factory
+from .human_pickup import OutboundHumanPickupSimLeg
 from .inbound import InboundSipSimLeg
-from .outbound import OutboundSipSimLeg
 from .protocol import SimLeg, SimLegContext, SimLegError, SimLegHandle
 from .sim_callee import OutboundSimCalleeSimLeg
 from .webrtc import WebRtcSimLeg
@@ -16,7 +16,7 @@ from .webrtc import WebRtcSimLeg
 __all__ = [
     "AgentDialsSimLeg",
     "InboundSipSimLeg",
-    "OutboundSipSimLeg",
+    "OutboundHumanPickupSimLeg",
     "OutboundSimCalleeSimLeg",
     "SimLeg",
     "SimLegContext",

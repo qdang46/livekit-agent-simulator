@@ -1,4 +1,4 @@
-"""Outbound SIP SimLeg — human answers; Gemini speaks in the same agent room."""
+"""Outbound human-pickup SimLeg — human answers; Gemini speaks in the same agent room."""
 
 from __future__ import annotations
 
@@ -9,14 +9,15 @@ from ..adapter import SIM_IDENTITY
 from .errors import sip_error_spec
 from .protocol import SimLegContext, SimLegError, SimLegHandle
 
-MODE = "outbound_sip"
+MODE = "outbound_human_pickup"
 
 
-class OutboundSipSimLeg:
+class OutboundHumanPickupSimLeg:
     """Dial a human/PSTN number into agent-room; after answer, Gemini WebRTC speaks there.
 
     Handset isolation (default ``mute_and_unsubscribe``) reduces human ↔ room audio so
-    Gemini replaces the talker. No sim DID / second room required.
+    Gemini replaces the talker. No sim DID / second room required. Manual / attended tests —
+    use ``outbound_sim_callee`` for automated Gemini-as-SIP-callee.
     """
 
     async def connect(self, ctx: SimLegContext) -> SimLegHandle:
@@ -100,7 +101,7 @@ class OutboundSipSimLeg:
                 spec=sip_error_spec(e, call_to=tel.call_to),
                 include_dialogue=False,
             )
-            raise SimLegError(f"outbound_sip dial failed: {e}") from e
+            raise SimLegError(f"outbound_human_pickup dial failed: {e}") from e
 
         dial_ms = int((time.monotonic() - t0) * 1000)
         sip_part_id = getattr(sip_info, "participant_identity", None) or sip_identity

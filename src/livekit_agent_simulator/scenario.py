@@ -43,9 +43,17 @@ KNOWN_KINDS = {
 }
 
 CALLER_MODES = frozenset(
-    {"webrtc_sim", "inbound_sip", "outbound_sip", "outbound_sim_callee", "agent_dials"}
+    {
+        "webrtc_sim",
+        "inbound_sip",
+        "outbound_human_pickup",
+        "outbound_sim_callee",
+        "agent_dials",
+    }
 )
-SIP_MODES = frozenset({"inbound_sip", "outbound_sip", "outbound_sim_callee", "agent_dials"})
+SIP_MODES = frozenset(
+    {"inbound_sip", "outbound_human_pickup", "outbound_sim_callee", "agent_dials"}
+)
 HANDSET_ISOLATION_MODES = frozenset(
     {"mute_uplink", "mute_and_unsubscribe", "none", "remove"}
 )
@@ -487,7 +495,7 @@ def parse_scenario(path: Path | str) -> Scenario:
         if not has_call_to:
             # Allowed: config telephony.sim_inbound_number may supply it at run time.
             pass
-    if mode == "outbound_sip":
+    if mode == "outbound_human_pickup":
         # Human handset number — must be on scenario or validated at run (no sim DID fallback).
         pass
     if mode == "inbound_sip":
@@ -602,14 +610,18 @@ def validate_telephony_for_mode(scenario: Scenario, cfg: Any) -> None:
     if mode not in SIP_MODES:
         return
     tel = effective_telephony(scenario, cfg)
-    if mode in ("outbound_sip", "outbound_sim_callee", "inbound_sip") and not tel.outbound_trunk_id:
+    if mode in (
+        "outbound_human_pickup",
+        "outbound_sim_callee",
+        "inbound_sip",
+    ) and not tel.outbound_trunk_id:
         raise ScenarioError(
             f"Scenario `{scenario.id}` mode={mode} requires telephony.outbound_trunk_id "
             f"in config or Telephony.sip_trunk_id in the scenario."
         )
-    if mode == "outbound_sip" and not tel.call_to:
+    if mode == "outbound_human_pickup" and not tel.call_to:
         raise ScenarioError(
-            f"Scenario `{scenario.id}` mode=outbound_sip requires Telephony.call_to "
+            f"Scenario `{scenario.id}` mode=outbound_human_pickup requires Telephony.call_to "
             f"(human/PSTN number that will answer). "
             f"For Gemini-as-callee hairpin use mode=outbound_sim_callee + sim_inbound_number."
         )

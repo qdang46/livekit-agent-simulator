@@ -4,7 +4,7 @@
 
 ### Problem
 
-Mode **`outbound_sim_callee`** (formerly misnamed `outbound_sip`): `call_to` must be a **sim DID** that routes into the **sim-room** where Gemini already sits (Cloud hairpin).
+Mode **`outbound_sim_callee`**: `call_to` must be a **sim DID** that routes into the **sim-room** where Gemini already sits (Cloud hairpin).
 
 Calling a **real PSTN number** without that DID:
 
@@ -22,10 +22,10 @@ lk-sim dial +84xxxxxxxxx  ──►  Cloud Trunk  ──►  PSTN  ──►  Re
 
 | Mode | Use when |
 |---|---|
-| **`outbound_sip`** | Human answers to connect; Gemini joins **same** agent-room and speaks (no sim DID) |
-| **`outbound_sim_callee`** | True Gemini-as-SIP-callee via sim DID + dispatch (2-room hairpin) |
+| **`outbound_human_pickup`** | Manual: human answers to connect; Gemini joins **same** agent-room and speaks (no sim DID) |
+| **`outbound_sim_callee`** | Automated: true Gemini-as-SIP-callee via sim DID + dispatch (2-room hairpin) |
 
-See: `docs/telephony.md`, `docs/plans/PLAN-20260714-outbound-sip-migrate-human-pickup.md`
+See: `docs/telephony.md`
 
 ### Potential solutions (sim-callee path)
 

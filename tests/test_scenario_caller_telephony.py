@@ -49,16 +49,16 @@ def test_default_mode_webrtc(tmp_path):
     assert s.export_dict()["caller_mode"] == "webrtc_sim"
 
 
-def test_parse_outbound_sip_human(tmp_path):
+def test_parse_outbound_human_pickup(tmp_path):
     content = BASE + (
-        '{"kind":"Caller","spec":{"mode":"outbound_sip"}}\n'
+        '{"kind":"Caller","spec":{"mode":"outbound_human_pickup"}}\n'
         '{"kind":"Telephony","spec":{"call_to":"+15551112222","prepare_ms":1000,'
         '"handset_isolation":"mute_uplink"}}\n'
     )
     f = tmp_path / "out.jsonl"
     f.write_text(content, encoding="utf-8")
     s = parse_scenario(f)
-    assert s.effective_caller_mode() == "outbound_sip"
+    assert s.effective_caller_mode() == "outbound_human_pickup"
     assert s.telephony is not None
     assert s.telephony.call_to == "+15551112222"
     assert s.telephony.prepare_ms == 1000
@@ -123,8 +123,8 @@ def test_sim_inbound_fallback_only_for_sim_callee(tmp_path):
     assert tel.wait_until_answered is False
 
 
-def test_outbound_sip_no_sim_inbound_fallback(tmp_path):
-    content = BASE + '{"kind":"Caller","spec":{"mode":"outbound_sip"}}\n'
+def test_outbound_human_pickup_no_sim_inbound_fallback(tmp_path):
+    content = BASE + '{"kind":"Caller","spec":{"mode":"outbound_human_pickup"}}\n'
     f = tmp_path / "human.jsonl"
     f.write_text(content, encoding="utf-8")
     s = parse_scenario(f)
@@ -135,8 +135,8 @@ def test_outbound_sip_no_sim_inbound_fallback(tmp_path):
         validate_telephony_for_mode(s, cfg)
 
 
-def test_validate_outbound_sip_missing_call_to(tmp_path):
-    content = BASE + '{"kind":"Caller","spec":{"mode":"outbound_sip"}}\n'
+def test_validate_outbound_human_pickup_missing_call_to(tmp_path):
+    content = BASE + '{"kind":"Caller","spec":{"mode":"outbound_human_pickup"}}\n'
     f = tmp_path / "miss.jsonl"
     f.write_text(content, encoding="utf-8")
     s = parse_scenario(f)
@@ -172,9 +172,9 @@ def test_scenario_from_dict_caller():
         {
             "id": "dyn",
             "persona": {"brief": "hi"},
-            "caller": {"mode": "outbound_sip"},
+            "caller": {"mode": "outbound_human_pickup"},
             "telephony": {"call_to": "+1", "sip_trunk_id": "ST_1"},
         }
     )
-    assert s.effective_caller_mode() == "outbound_sip"
+    assert s.effective_caller_mode() == "outbound_human_pickup"
     assert s.telephony.call_to == "+1"

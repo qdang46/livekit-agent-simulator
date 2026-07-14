@@ -4,20 +4,22 @@ Portable transport modes for lk-sim. **Mode is never set in `config.yaml`** — 
 
 ## Breaking (2026-07-14)
 
-`Caller.mode: outbound_sip` is **no longer** Cloud hairpin / Gemini-as-callee.
-That mode is now **`outbound_sim_callee`**.
+| Old name | Current name | Meaning |
+|---|---|---|
+| `outbound_sip` (hairpin) | **`outbound_sim_callee`** | Gemini answers as SIP callee via sim DID (2 rooms) |
+| `outbound_sip` (human pickup) | **`outbound_human_pickup`** | Human answers; Gemini WebRTC colocated (1 room) |
 
-`outbound_sip` dials a **human-answered** number, then Gemini joins the **same** agent room and speaks (handset isolated by default).
+`outbound_sip` is **removed** (no alias). Update target scenarios.
 
 ## Modes
 
-| `Caller.mode` | Gemini role | Rooms |
-|---|---|---|
-| `webrtc_sim` (default) | Caller (WebRTC) | 1 |
-| `inbound_sip` | Caller dials agent DID | 2 (Cloud hairpin) |
-| **`outbound_sip`** | Speaks after **human** answers | **1** (colocated) |
-| **`outbound_sim_callee`** | SIP **callee** via sim DID | **2** (Cloud hairpin) |
-| `agent_dials` | Callee; agent process dials | 2 |
+| `Caller.mode` | Gemini role | Rooms | Best for |
+|---|---|---|---|
+| `webrtc_sim` (default) | Caller (WebRTC) | 1 | Automated / CI |
+| `inbound_sip` | Caller dials agent DID | 2 (Cloud hairpin) | Automated |
+| **`outbound_human_pickup`** | Speaks after **human** answers | **1** (colocated) | Manual / attended |
+| **`outbound_sim_callee`** | SIP **callee** via sim DID | **2** (Cloud hairpin) | Automated PSTN callee |
+| `agent_dials` | Callee; agent process dials | 2 | Agent-owned dial |
 
 ## Precedence
 
@@ -28,14 +30,14 @@ Scenario Telephony.*  >  config.yaml telephony.*  >  built-ins
 | Field | Scenario | Config | Required for |
 |---|---|---|---|
 | mode | `Caller.mode` | — | all (default webrtc_sim) |
-| call_to | `Telephony.call_to` | `telephony.sim_inbound_number` (**only** `outbound_sim_callee`) | `outbound_sip`, `outbound_sim_callee` |
+| call_to | `Telephony.call_to` | `telephony.sim_inbound_number` (**only** `outbound_sim_callee`) | `outbound_human_pickup`, `outbound_sim_callee` |
 | dial_in | `Telephony.dial_in` | `telephony.dial_in` | inbound_sip |
 | trunk | `Telephony.sip_trunk_id` | `telephony.outbound_trunk_id` | SIP modes |
 | prepare_ms | optional | `telephony.prepare_ms` (default 3000) | outbound |
 | wait_until_answered | optional | default `true` | SIP dial |
-| handset_isolation | optional | `telephony.handset_isolation` | **outbound_sip** only |
+| handset_isolation | optional | `telephony.handset_isolation` | **outbound_human_pickup** only |
 
-### `handset_isolation` (`outbound_sip`)
+### `handset_isolation` (`outbound_human_pickup`)
 
 | Value | Behavior |
 |---|---|
@@ -62,16 +64,16 @@ telephony:
   sim_inbound_number: "+15559876543"   # Gemini callee DID (outbound_sim_callee only)
   prepare_ms: 3000
   wait_until_answered: true
-  handset_isolation: mute_and_unsubscribe  # outbound_sip
+  handset_isolation: mute_and_unsubscribe  # outbound_human_pickup
 ```
 
 ## Scenario examples
 
-- Human pickup: `templates/outbound-sip.jsonl` — `Caller.mode: outbound_sip` + `Telephony.call_to` (real phone)
+- Human pickup: `templates/outbound-human-pickup.jsonl` — `Caller.mode: outbound_human_pickup` + `Telephony.call_to` (real phone)
 - Gemini callee hairpin: `templates/outbound-callee-sim.jsonl` — `Caller.mode: outbound_sim_callee`
 - Inbound: `templates/inbound-caller-sim.jsonl`
 
-### `outbound_sip` sequence
+### `outbound_human_pickup` sequence
 
 ```text
 agent-room → dispatch agent → dial human (wait_until_answered)
@@ -90,7 +92,7 @@ sim-room (Gemini ready) + agent-room → dial sim DID → hairpin into sim-room
 1. LiveKit outbound trunk (carrier termination URI, not LiveKit host).
 2. Agent inbound DID + dispatch rule (for `inbound_sip`).
 3. For `outbound_sim_callee`: sim/Gemini answer DID + dispatch into sim-room.
-4. For `outbound_sip`: any answerable E.164; leave handset connected (dead air if isolated).
+4. For `outbound_human_pickup`: any answerable E.164; leave handset connected (dead air if isolated).
 5. Secrets only in gitignored target config.
 
 ## Asserts
@@ -102,7 +104,7 @@ sim-room (Gemini ready) + agent-room → dial sim DID → hairpin into sim-room
 ## Design
 
 - **Template Method** — one orchestrator pipeline.
-- **Strategy** — `SimLeg` (`WebRtc` / `InboundSip` / `OutboundSip` / `OutboundSimCallee` / `AgentDials`).
+- **Strategy** — `SimLeg` (`WebRtc` / `InboundSip` / `OutboundHumanPickup` / `OutboundSimCallee` / `AgentDials`).
 - **Factory** — `sim_leg_factory(mode)`.
 
 Package core stays target-agnostic: no product names, agent IDs, or dashboard keys in `src/`.

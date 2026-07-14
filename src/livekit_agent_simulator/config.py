@@ -110,7 +110,7 @@ class TelephonyConfig:
     krisp_enabled: bool = False
     agent_room: str | None = None
     agent_room_name_template: str | None = None
-    # outbound_sip only — mute human handset after answer (see docs/telephony.md)
+    # outbound_human_pickup only — mute human handset after answer (see docs/telephony.md)
     handset_isolation: str = "mute_and_unsubscribe"
 
 

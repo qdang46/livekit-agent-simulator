@@ -1,6 +1,6 @@
 """End-to-end run: preflight → SimLeg.connect → converse → report.
 
-Phases: prepare → SimLeg (WebRTC | inbound_sip | outbound_sip | outbound_sim_callee | agent_dials) →
+Phases: prepare → SimLeg (WebRTC | inbound_sip | outbound_human_pickup | outbound_sim_callee | agent_dials) →
 SimBrain → converse → verify → judge → finalize.
 
 End conditions (first one wins):

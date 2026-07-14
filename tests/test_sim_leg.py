@@ -41,7 +41,7 @@ def make_cfg(tmp_path, **tel):
 
 def test_factory_modes():
     assert type(sim_leg_factory("webrtc_sim")).__name__ == "WebRtcSimLeg"
-    assert type(sim_leg_factory("outbound_sip")).__name__ == "OutboundSipSimLeg"
+    assert type(sim_leg_factory("outbound_human_pickup")).__name__ == "OutboundHumanPickupSimLeg"
     assert type(sim_leg_factory("outbound_sim_callee")).__name__ == "OutboundSimCalleeSimLeg"
     assert type(sim_leg_factory("inbound_sip")).__name__ == "InboundSipSimLeg"
     assert type(sim_leg_factory("agent_dials")).__name__ == "AgentDialsSimLeg"
@@ -49,13 +49,13 @@ def test_factory_modes():
         sim_leg_factory("fax")
 
 
-async def test_outbound_sip_human_pickup_connect(tmp_path):
+async def test_outbound_human_pickup_connect(tmp_path):
     cfg = make_cfg(tmp_path, outbound_trunk_id="ST_x")
     scenario = Scenario(
         id="s",
         path=tmp_path / "s.jsonl",
         persona={"brief": "x"},
-        caller=CallerSpec(mode="outbound_sip"),
+        caller=CallerSpec(mode="outbound_human_pickup"),
         telephony=TelephonySpec(call_to="+15551112222"),
     )
     writer = MagicMock()
@@ -75,9 +75,9 @@ async def test_outbound_sip_human_pickup_connect(tmp_path):
         return_value={"isolation": "mute_and_unsubscribe", "muted_track_sids": ["TR_1"]}
     )
 
-    from livekit_agent_simulator.livekit.sim_leg.outbound import OutboundSipSimLeg
+    from livekit_agent_simulator.livekit.sim_leg.human_pickup import OutboundHumanPickupSimLeg
 
-    handle = await OutboundSipSimLeg().connect(
+    handle = await OutboundHumanPickupSimLeg().connect(
         SimLegContext(
             adapter=adapter,
             cfg=cfg,
@@ -88,7 +88,7 @@ async def test_outbound_sip_human_pickup_connect(tmp_path):
             first_speaker="agent",
         )
     )
-    assert handle.mode == "outbound_sip"
+    assert handle.mode == "outbound_human_pickup"
     assert handle.agent_room is room
     assert handle.sim_room is room
     assert handle.sim_identity == "lk-sim-caller"
