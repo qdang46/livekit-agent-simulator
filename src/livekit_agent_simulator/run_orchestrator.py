@@ -55,6 +55,26 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
     return await run_scenario_instance(cfg, scenario)
 
 
+
+def _persona_is_silent_mode(persona: dict | None) -> bool:
+    """True when Coval-style silent mode / silent trait should suppress agent-greeted nudge."""
+    p = persona or {}
+    sc = p.get("speech_conditions") or p.get("speechConditions") or {}
+    if isinstance(sc, dict):
+        for key in ("silent_mode", "silent", "dead_air"):
+            v = sc.get(key)
+            if v is True or str(v).strip().lower() in ("1", "true", "yes", "on"):
+                return True
+    traits = p.get("traits") or p.get("behaviors") or []
+    if isinstance(traits, str):
+        traits = [traits]
+    for raw in traits:
+        key = str(raw).strip().lower().replace(" ", "_").replace("-", "_")
+        if key in ("silent", "dead_air", "unresponsive"):
+            return True
+    return False
+
+
 async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str, Any]:
     """Run a parsed Scenario (file or in-memory). Returns {run_id, status, report_dir, summary}.
 
@@ -225,6 +245,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                         bridge,
                         writer,
                         first_speaker=run.first_speaker,
+                        skip_silent=_persona_is_silent_mode(scenario.persona),
                     ),
                     name="agent-greeted-nudge",
                 )

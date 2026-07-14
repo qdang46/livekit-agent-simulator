@@ -24,9 +24,21 @@ async def nudge_caller_after_agent_greeting(
     first_speaker: str,
     debounce_s: float = 1.0,
     poll_s: float = 0.15,
+    skip_silent: bool = False,
 ) -> None:
-    """When first_speaker is agent, persona-only runs stall without a text bootstrap."""
+    """When first_speaker is agent, persona-only runs stall without a text bootstrap.
+
+    skip_silent: Coval-style silent mode / dead caller — do not force a response.
+    """
     if first_speaker != "agent":
+        return
+    if skip_silent:
+        writer.emit(
+            "sim.agent_greeted_nudge",
+            spec={"skipped": True, "reason": "silent_mode"},
+            source="sim",
+            include_dialogue=False,
+        )
         return
 
     nudged = False

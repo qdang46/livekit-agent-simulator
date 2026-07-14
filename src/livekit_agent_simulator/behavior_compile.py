@@ -44,6 +44,13 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
         return []
     steps: list[ScriptStep] = []
 
+    silent_mode = False
+    for key in ("silent_mode", "silent", "dead_air"):
+        v = sc.get(key)
+        if v is True or str(v).strip().lower() in ("1", "true", "yes", "on"):
+            silent_mode = True
+            break
+
     noise = sc.get("noise") or sc.get("ambient")
     if noise:
         delay = int(sc.get("noise_delay_ms") or sc.get("after_join_ms") or 5000)
@@ -65,7 +72,7 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
         )
 
     barge = str(sc.get("barge_policy") or sc.get("barge") or "").strip().lower()
-    if barge in ("mid_agent_turn", "mid", "interrupt", "barge", "true", "1"):
+    if (not silent_mode) and barge in ("mid_agent_turn", "mid", "interrupt", "barge", "true", "1"):
         after = int(sc.get("barge_after_agent_ms") or sc.get("after_agent_ms") or 600)
         say = str(sc.get("barge_say") or "Sorry — one second —").strip()
         asset = sc.get("barge_asset")
@@ -100,6 +107,8 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
         )
 
     silence_ms = int(sc.get("silence_ms") or sc.get("user_silence_ms") or 0)
+    if silent_mode and silence_ms < 500:
+        silence_ms = int(sc.get("silent_hold_ms") or 12000)
     if silence_ms >= 500:
         steps.append(
             ScriptStep(
