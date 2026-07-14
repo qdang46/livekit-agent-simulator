@@ -120,6 +120,20 @@ sim-room (Gemini ready) + agent-room → dial sim DID → hairpin into sim-room
 
 Package core stays target-agnostic: no product names, agent IDs, or dashboard keys in `src/`.
 
+## Preflight checklist (outbound_sim_callee)
+
+```bash
+lk-sim preflight --root /path/to/target
+```
+
+Expect:
+
+1. `telephony` pass/warn with `outbound_trunk=set`
+2. `telephony.outbound_sim_callee` pass when `sim_inbound_number` is set
+3. LiveKit project: inbound dispatch rule for that DID → room naming that matches the sim hairpin (see PROBLEM.md)
+
+If you only have a human handset number, use **`outbound_human_pickup`**, not `outbound_sim_callee`.
+
 ## Warm transfer / SIP REFER (deferred P2)
 
 LiveKit agents may use `WarmTransferTask` / SIP REFER. **lk-sim core does not yet** assert transfer lifecycle (second SIP participant, room move, handoff summary).
