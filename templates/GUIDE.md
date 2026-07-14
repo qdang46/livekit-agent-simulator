@@ -435,3 +435,15 @@ No Node/Vite on the user machine. Player assets ship inside the wheel (built in 
 - Prefer `execute` / `execute_scenario` / `execute_scenario_dict` over custom Python runners.
 - Deep package rules + research loop: https://github.com/quangdang46/livekit-agent-simulator/blob/main/AGENTS.md
 - Consumer wiring examples only: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md (load when setting up a target, not for core bugs).
+
+## Machine / AMD-style sim presets (portable)
+
+Not LiveKit in-process AMD — black-box stress for agents that must handle voicemail-like silence:
+
+| Template | Intent |
+|---|---|
+| `examples/amd-voicemail-greeting.jsonl` | Short greeting cue then long silence |
+| `examples/amd-silent-caller.jsonl` | Dead air (Coval silent mode) |
+| `examples/amd-slow-pickup.jsonl` | Delayed human hello |
+
+Use `Caller.mode` SIP variants only when your target telephony is configured; defaults use `webrtc_sim`.
