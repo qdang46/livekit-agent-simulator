@@ -1,7 +1,9 @@
 from livekit_agent_simulator.gemini.end_call import (
     END_CALL_TOKEN,
     contains_end_call_signal,
+    contains_farewell_signal,
     strip_end_call_signal,
+    strip_farewell_signal,
 )
 
 
@@ -25,3 +27,15 @@ def test_no_false_positive_on_normal_speech():
     text = "I want to call next Friday about the end of the billing period."
     assert not contains_end_call_signal(text)
     assert strip_end_call_signal(text) == text
+
+
+def test_farewell_soft_bye_detected():
+    assert contains_farewell_signal("Okay, thanks. Bye.")
+    assert contains_farewell_signal("Goodbye!")
+    assert contains_farewell_signal("Alright, see you later")
+    assert not contains_farewell_signal("What's the monthly fee?")
+    assert strip_farewell_signal("Okay, thanks. Bye.") == "Okay, thanks."
+
+
+def test_farewell_includes_harness_token():
+    assert contains_farewell_signal(f"Thanks {END_CALL_TOKEN}")

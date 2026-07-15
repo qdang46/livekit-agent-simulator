@@ -139,6 +139,11 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 silence_after_cue_ms=int(raw.get("silence_after_cue_ms", 0)),
                 action=action,
                 require_agent_spoke_first=bool(raw.get("require_agent_spoke_first", True)),
+                require_agent_reply_this_turn=bool(
+                    raw.get("require_agent_reply_this_turn", True)
+                ),
+                defer_on_open_question=bool(raw.get("defer_on_open_question", True)),
+                open_question_idle_ms=int(raw.get("open_question_idle_ms", 20000)),
                 barge_in=barge_in,
                 with_blip=with_blip,
                 gain=gain,

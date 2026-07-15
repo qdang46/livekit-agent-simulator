@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from google import genai
@@ -31,7 +32,9 @@ from ..config import SimConfig
 from .end_call import (
     END_CALL_TOKEN,
     contains_end_call_signal,
+    contains_farewell_signal,
     strip_end_call_signal,
+    strip_farewell_signal,
 )
 
 if TYPE_CHECKING:
@@ -97,6 +100,36 @@ class GeminiCallerBridge:
         self._inject_turn_active: bool = False
         # Drop persona PCM after hang-up token / spoken "end call" is detected.
         self._mute_persona_audio = False
+        # When Script steps remain, freestyle bye/[END_CALL] must not tear the room down.
+        self._script_pending: Callable[[], bool] | None = None
+        # True while Script hang_up is injecting a spoken farewell (must not mute it).
+        self._script_hangup_farewell = False
+
+    def bind_script_pending(self, is_pending: Callable[[], bool] | None) -> None:
+        """Wire ScriptRunner.has_pending_steps (or equivalent). None = no script gate."""
+        self._script_pending = is_pending
+
+    def _script_steps_pending(self) -> bool:
+        fn = self._script_pending
+        if fn is None:
+            return False
+        try:
+            return bool(fn())
+        except Exception:
+            return False
+
+    def begin_script_hangup_farewell(self) -> None:
+        """Allow Script goodbye TTS past suppress/mute gates."""
+        self._script_hangup_farewell = True
+        self._suppress_output_until_mono = None
+        self._mute_persona_audio = False
+
+    def end_script_hangup_farewell(self) -> None:
+        self._script_hangup_farewell = False
+
+    async def drain_persona_speech(self, *, timeout_s: float = 4.0) -> None:
+        """Wait for queued sim speech to leave the mic (goodbye playout)."""
+        await self._drain_persona_speech(timeout_s=timeout_s)
 
     # ------------------------------------------------------------------ setup
 
@@ -518,11 +551,25 @@ class GeminiCallerBridge:
                     if sc.output_transcription and sc.output_transcription.text:
                         if not self._persona_output_suppressed():
                             self._sim_out_text += sc.output_transcription.text
-                            if contains_end_call_signal(self._sim_out_text):
+                            pending = self._script_steps_pending()
+                            early_bye = contains_farewell_signal(self._sim_out_text)
+                            scripted_farewell = self._script_hangup_farewell
+                            if (
+                                (early_bye or contains_end_call_signal(self._sim_out_text))
+                                and not scripted_farewell
+                            ):
+                                # Mute ASAP so freestyle bye does not push more PCM to the agent.
                                 self._mute_hang_up_audio()
+                                if pending and early_bye:
+                                    self.suppress_persona_output(4000)
+                            log_text = (
+                                strip_farewell_signal(self._sim_out_text)
+                                if pending
+                                else strip_end_call_signal(self._sim_out_text)
+                            )
                             self.observer.on_transcript(
                                 "user",
-                                strip_end_call_signal(self._sim_out_text),
+                                log_text,
                                 final=False,
                                 source="sim.gemini",
                             )
@@ -538,31 +585,51 @@ class GeminiCallerBridge:
                     if sc.model_turn:
                         for part in sc.model_turn.parts or []:
                             blob = part.inline_data
-                            if (
-                                blob
-                                and blob.data
-                                and not self._persona_output_suppressed()
+                            allow_pcm = self._script_hangup_farewell or (
+                                not self._persona_output_suppressed()
                                 and not self._mute_persona_audio
-                            ):
+                            )
+                            if blob and blob.data and allow_pcm:
                                 await self._play_pcm(blob.data)
 
                     if sc.turn_complete:
                         self._inject_turn_active = False
                         self._inject_playback_gain = 1.0
-                        if self._persona_output_suppressed():
+                        if self._persona_output_suppressed() and not self._script_hangup_farewell:
                             self._sim_out_text = ""
                             self._mute_persona_audio = False
                             continue
                         text = self._sim_out_text.strip()
                         if text:
                             ended = contains_end_call_signal(text)
-                            clean = strip_end_call_signal(text)
+                            farewell = contains_farewell_signal(text)
+                            pending = self._script_steps_pending()
+                            clean = (
+                                strip_farewell_signal(text)
+                                if pending
+                                else strip_end_call_signal(text)
+                            )
                             if clean:
                                 self.observer.on_transcript(
                                     "user", clean, final=True, source="sim.gemini"
                                 )
                             self._sim_out_text = ""
-                            if ended:
+                            if (
+                                pending
+                                and (ended or farewell)
+                                and not self._script_hangup_farewell
+                            ):
+                                # Script still owns hang-up — do not tear down the session.
+                                self._mute_persona_audio = True
+                                self.suppress_persona_output(5000)
+                                self.writer.emit(
+                                    "sim.script_deferred_end_call",
+                                    spec={"text": clean, "reason": "script_steps_pending"},
+                                    source="sim.gemini",
+                                )
+                                self._mute_persona_audio = False
+                                continue
+                            if ended and not self._script_hangup_farewell:
                                 # Stop new hang-up chatter, but drain goodbye already queued
                                 # so the recorder / room do not lose the last spoken sentence.
                                 self._mute_persona_audio = True

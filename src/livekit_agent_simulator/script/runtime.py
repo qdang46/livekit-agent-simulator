@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .farewell import default_hangup_farewell
+from .hang_up_gate import agent_left_open_turn
 from .models import ScriptStep
 
 if TYPE_CHECKING:
@@ -38,9 +40,18 @@ class ScriptRunner:
         self._armed_step_index = 0
         self._await_post_cue_gap = False
         self._post_cue_gap_since: float | None = None
+        self._hang_up_defer_emitted: set[str] = set()
+        # Wall-clock when hang_up first hit a defer reason (do not reset on new agent finals).
+        self._hang_up_defer_since: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop.set()
+
+    def has_pending_steps(self) -> bool:
+        """True while at least one Script step has not finished firing yet."""
+        if self._stop.is_set():
+            return False
+        return self._armed_step_index < len(self.steps)
 
     async def run(self) -> None:
         if not self.steps:
@@ -83,8 +94,78 @@ class ScriptRunner:
                     need = step.min_agent_active_ms + step.delay_ms
                 if elapsed_ms < need:
                     continue
+                if step.action == "hang_up":
+                    # Wrap-up: mute freestyle so Gemini cannot invent loops while Script bye awaits.
+                    if hasattr(self.bridge, "suppress_persona_output"):
+                        self.bridge.suppress_persona_output(1500)
+                if not self._hang_up_ready(step):
+                    # Hold the arm but do not accumulate delay while dialog is still open.
+                    self._trigger_since.pop(step.id, None)
+                    continue
                 await self._fire(step, elapsed_ms)
             await asyncio.sleep(0.05)
+
+    def _hang_up_ready(self, step: ScriptStep) -> bool:
+        """True when hang_up is allowed; always True for speak/wait.
+
+        Briefly defer while the agent still expects a reply, but use a **single wall-clock
+        budget** from the first defer (`open_question_idle_ms`). New agent questions must
+        not reset that budget (otherwise freestyle loops never hang up).
+        """
+        if step.action != "hang_up":
+            return True
+        reason: str | None = None
+        if step.require_agent_reply_this_turn:
+            if self.observer.user_has_spoken and not self.observer.agent_replied_this_turn:
+                reason = "awaiting_agent_reply"
+        if reason is None and step.defer_on_open_question:
+            agent_text = self.observer.last_agent_final_text
+            if agent_left_open_turn(agent_text):
+                agent_t = self.observer.last_agent_final_mono
+                user_t = self.observer.last_user_final_mono
+                user_replied = (
+                    user_t is not None and agent_t is not None and user_t > agent_t
+                )
+                if not user_replied:
+                    reason = "open_agent_question"
+        budget_ms = max(0, int(step.open_question_idle_ms))
+        if reason is None:
+            self._hang_up_defer_emitted.discard(step.id)
+            self._hang_up_defer_since.pop(step.id, None)
+            return True
+        started = self._hang_up_defer_since.setdefault(step.id, time.monotonic())
+        deferred_ms = int((time.monotonic() - started) * 1000)
+        if deferred_ms >= budget_ms:
+            # Budget exhausted — allow script goodbye even if agent just re-asked.
+            self.writer.emit(
+                "sim.script.hang_up_deferred",
+                spec={
+                    "step_id": step.id,
+                    "reason": "defer_budget_exhausted",
+                    "prior_reason": reason,
+                    "deferred_ms": deferred_ms,
+                    "budget_ms": budget_ms,
+                    "last_agent_final": (self.observer.last_agent_final_text or "")[:240],
+                },
+                source="sim.script",
+                include_dialogue=False,
+            )
+            return True
+        if step.id not in self._hang_up_defer_emitted:
+            self._hang_up_defer_emitted.add(step.id)
+            self.writer.emit(
+                "sim.script.hang_up_deferred",
+                spec={
+                    "step_id": step.id,
+                    "reason": reason,
+                    "deferred_ms": deferred_ms,
+                    "budget_ms": budget_ms,
+                    "last_agent_final": (self.observer.last_agent_final_text or "")[:240],
+                },
+                source="sim.script",
+                include_dialogue=False,
+            )
+        return False
 
     def _trigger_active(self, step: ScriptStep) -> bool:
         if step.trigger == "agent_speaking":
@@ -119,11 +200,23 @@ class ScriptRunner:
                     await asyncio.sleep(hold_silence_ms / 1000.0)
             elif step.action == "hang_up":
                 kind = "sim.script.hang_up"
-                # Optionally say something before hanging up
-                if step.say.strip():
+                # Human-caller fidelity: never silent-drop. Empty say → locale default goodbye.
+                say_text = step.say.strip()
+                if not say_text:
+                    lang = None
+                    cfg = getattr(self.bridge, "cfg", None)
+                    sim = getattr(cfg, "simulator", None) if cfg is not None else None
+                    lang = getattr(sim, "language", None) if sim is not None else None
+                    if not lang:
+                        voice = getattr(sim, "voice", None) if sim is not None else None
+                        lang = getattr(voice, "language", None) if voice is not None else None
+                    say_text = default_hangup_farewell(lang if isinstance(lang, str) else None)
+                if hasattr(self.bridge, "begin_script_hangup_farewell"):
+                    self.bridge.begin_script_hangup_farewell()
+                try:
                     try:
                         await self.bridge.inject_cue(
-                            step.say,
+                            say_text,
                             label=step.label or step.id,
                             delivery=step.delivery or "gemini_text",
                             asset=step.asset,
@@ -132,19 +225,26 @@ class ScriptRunner:
                         )
                     except Exception as say_err:
                         inject_error = f"{type(say_err).__name__}: {say_err}"
-                # Set sim-greeted-nudge style hold so script runner doesn't race
-                await asyncio.sleep(0.3)
+                    # Let goodbye leave the room before disconnect (real human hang-up).
+                    if hasattr(self.bridge, "drain_persona_speech"):
+                        await self.bridge.drain_persona_speech(timeout_s=4.0)
+                    else:
+                        await asyncio.sleep(2.5)
+                    await asyncio.sleep(0.35)
+                finally:
+                    if hasattr(self.bridge, "end_script_hangup_farewell"):
+                        self.bridge.end_script_hangup_farewell()
                 # Mark caller disconnected by triggering end_call via bridge
                 self.bridge.sim_hang_up()
                 hang_spec = {
                     "step_id": step.id,
                     "label": step.label or step.id,
-                    "say": step.say,
+                    "say": say_text,
                     "trigger": step.trigger,
                     "action": step.action,
                     "barge_in": step.barge_in,
                     "class": step.interrupt_class,
-                    "delivery": step.delivery,
+                    "delivery": step.delivery or "gemini_text",
                     "asset": step.asset,
                     "gain": step.gain,
                     "waited_ms": waited_ms,
@@ -166,7 +266,7 @@ class ScriptRunner:
                     spec={
                         "step_id": step.id,
                         "label": step.label or step.id,
-                        "say": step.say,
+                        "say": say_text,
                         **({"error": inject_error} if inject_error else {}),
                     },
                     source="sim.script",

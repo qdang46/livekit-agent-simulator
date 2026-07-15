@@ -97,6 +97,8 @@ class Observer:
         # Turn tracking: a turn = one user utterance + the agent reply to it.
         self.turn = 0
         self._last_user_final_mono: float | None = None
+        self._last_agent_final_mono: float | None = None
+        self._last_agent_final_text: str = ""
         self._agent_replied_this_turn = False
         self.last_agent_activity_mono: float = time.monotonic()
         self.agent_disconnected = asyncio.Event()
@@ -131,6 +133,18 @@ class Observer:
     @property
     def user_has_spoken(self) -> bool:
         return self._user_has_spoken
+
+    @property
+    def last_user_final_mono(self) -> float | None:
+        return self._last_user_final_mono
+
+    @property
+    def last_agent_final_mono(self) -> float | None:
+        return self._last_agent_final_mono
+
+    @property
+    def last_agent_final_text(self) -> str:
+        return self._last_agent_final_text
 
     def agent_active_duration_ms(self) -> int | None:
         if self._agent_active_since_mono is None:
@@ -398,6 +412,8 @@ class Observer:
                     (time.monotonic() - self._last_user_final_mono) * 1000
                 )
             self._agent_replied_this_turn = True
+            self._last_agent_final_mono = time.monotonic()
+            self._last_agent_final_text = text
             self.writer.emit("transcript.agent.final", spec=spec, source=source)
 
     # --------------------------------------------------------------- data topics

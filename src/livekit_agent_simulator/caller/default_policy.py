@@ -57,4 +57,15 @@ class DefaultCallerPolicy:
                     label="goal_reground",
                 )
             )
+        if ctx.script_steps:
+            cues.append(
+                MidcallCue(
+                    text=(
+                        "(Timed Script is active. Do not say bye / goodbye / [END_CALL]. "
+                        "Stay quiet except for answering questions; the simulator will hang up.)"
+                    ),
+                    kind="reground",
+                    label="script_no_early_bye",
+                )
+            )
         return cues

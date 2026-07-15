@@ -224,6 +224,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                     writer,
                     scenario_dir=scenario_dir,
                 )
+                bridge.bind_script_pending(script_runner.has_pending_steps)
                 script_task = asyncio.create_task(script_runner.run(), name="script-runner")
 
             bridge_task = asyncio.create_task(bridge.run(), name="gemini-bridge")

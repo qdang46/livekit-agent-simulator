@@ -82,6 +82,12 @@ class ScriptStep:
     action: str = "speak"  # speak | wait | hang_up
     # For silence trigger: only start counting idle after agent has spoken once.
     require_agent_spoke_first: bool = True
+    # hang_up: do not fire while user spoke and agent has not answered that turn yet.
+    require_agent_reply_this_turn: bool = True
+    # hang_up: defer while last agent final still expects a caller reply (open ? / prompt).
+    # After open_question_idle_ms of no user reply, hang_up may proceed (ghost hang).
+    defer_on_open_question: bool = True
+    open_question_idle_ms: int = 20000
     barge_in: bool = False
     # When barge_in + gemini_text: play builtin noise.blip first (audible cut-in).
     with_blip: bool = True

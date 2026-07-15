@@ -153,18 +153,22 @@ class ContextSection:
 
 
 class ScriptTimingSection:
-    """When Script owns timing, free model must not freestyle barge."""
+    """When Script owns timing, free model must not freestyle barge or hang up."""
 
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         if not ctx.script_steps:
             return []
+        n = len(ctx.script_steps)
         return [
             "",
             "## INTERACTION TIMING (simulator-owned)",
+            f"This call has {n} timed Script step(s). Timing and hang-up are owned by the simulator.",
             "Timed caller cues (barge, silence, hang-up, DTMF, PCM) are injected automatically.",
             "Do NOT try to backchannel or interrupt on your own timing.",
             "Stay quiet and listen unless you are answering a direct question after the assistant finishes,",
             "or a cue was just injected for you to continue from.",
+            "Do NOT say goodbye, bye, thanks-bye, hang up, or [END_CALL] while Script steps remain.",
+            "Only the final Script hang-up step ends the call. Freestyle farewell will FAIL the test.",
         ]
 
 
@@ -184,6 +188,7 @@ class FirstSpeakerSection:
 class GuardrailsSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         n = len(ctx.goals())
+        has_script = bool(ctx.script_steps)
         lines = [
             "",
             "## GUARDRAILS",
@@ -191,12 +196,28 @@ class GuardrailsSection:
             "Only end the call when ALL goals are done (or unmistakably impossible after you tried).",
             "If you say goodbye or [END_CALL] early, the automated test will FAIL.",
             "If the assistant says something irrelevant, steer back to your current goal.",
-            "When all goals are handled, say a short goodbye in your language only, "
-            "then append the exact harness marker [END_CALL] once and stop speaking.",
-            'NEVER pronounce the English words "end call", "hang up", or "END CALL", '
-            "and do not read brackets aloud — that leaks into the room recording. "
-            "The marker is for the test harness transcript only.",
         ]
+        if has_script:
+            lines.extend(
+                [
+                    "A timed Script is active: do NOT freestyle a goodbye. Wait for the simulator hang-up cue.",
+                    "After the assistant answers, stay brief (okay / got it) — no bye until Script hang-up.",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "When all goals are handled, say a short goodbye in your language only, "
+                    "then append the exact harness marker [END_CALL] once and stop speaking.",
+                ]
+            )
+        lines.extend(
+            [
+                'NEVER pronounce the English words "end call", "hang up", or "END CALL", '
+                "and do not read brackets aloud — that leaks into the room recording. "
+                "The marker is for the test harness transcript only.",
+            ]
+        )
         if n:
             lines.append(
                 f"You have {n} numbered goal(s). Ending before they are addressed is a failure."

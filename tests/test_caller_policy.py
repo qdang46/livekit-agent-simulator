@@ -10,6 +10,7 @@ from livekit_agent_simulator.caller.prompt_sections import (
     GoalsSection,
     GuardrailsSection,
     RoleSection,
+    ScriptTimingSection,
 )
 
 
@@ -50,6 +51,29 @@ def test_guardrails_present():
     assert 'NEVER pronounce the English words "end call"' in joined
 
 
+def test_script_timing_forbids_early_bye():
+    ctx = CallerPolicyContext(
+        persona={"goals": ["Ask fee"]},
+        locale="en",
+        script_steps=[{"id": "open"}, {"id": "bye"}],
+    )
+    joined = "\n".join(ScriptTimingSection().render(ctx))
+    assert "simulator-owned" in joined.lower() or "INTERACTION TIMING" in joined
+    assert "Do NOT say goodbye" in joined
+    assert "Freestyle farewell" in joined
+
+
+def test_guardrails_script_mode_skips_freestyle_end_call_marker():
+    ctx = CallerPolicyContext(
+        persona={"goals": ["Ask fee"]},
+        locale="en",
+        script_steps=[{"id": "bye"}],
+    )
+    joined = "\n".join(GuardrailsSection().render(ctx))
+    assert "A timed Script is active" in joined
+    assert "append the exact harness marker" not in joined
+
+
 def test_build_persona_system_instruction_facade():
     prompt = build_persona_system_instruction(
         persona={
@@ -87,3 +111,17 @@ def test_default_policy_midcall_goals_bootstrap():
     assert "speak first" in boot[0].text.lower()
     assert "GOAL 1" in regd[0].text
     assert isinstance(cues[0], MidcallCue)
+
+
+def test_default_policy_midcall_script_no_early_bye():
+    policy = DefaultCallerPolicy()
+    ctx = CallerPolicyContext(
+        persona={"goals": ["Fee"], "brief": "test"},
+        locale="en-US",
+        first_speaker="agent",
+        script_steps=[{"id": "open"}, {"id": "bye"}],
+    )
+    cues = policy.midcall_cues(ctx)
+    script_rg = [c for c in cues if c.label == "script_no_early_bye"]
+    assert len(script_rg) == 1
+    assert "Do not say bye" in script_rg[0].text
