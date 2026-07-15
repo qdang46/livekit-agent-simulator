@@ -190,7 +190,7 @@ lk-sim scenario-init my-case --root /path/to/target
 - **Assert** `outcomes` type **`goals_met`** → LLM judge verifies the simulated caller stated/pursued at least N persona goals before `[END_CALL]` (hard fail if not met)
   - Example: `{"id":"goals_done","type":"goals_met","min_goals":2,"goals":["Hear greeting","Ask about pricing"]}`
   - Without explicit `goals`, falls back to `Persona.spec.goals` from the scenario
-- **Assert** `outcomes` type **`constraint_respected`** → hard fail if **caller** transcript contains forbidden phrases/patterns (`must_not_phrases` and/or `must_not_patterns`)
+- **Assert** `outcomes` type **`constraint_respected`** → hard fail if **caller** transcript contains forbidden phrases/patterns (`must_not_phrases` and/or `must_not_match`)
   - Example: `{"id":"no_card","type":"constraint_respected","must_not_phrases":["4111","CVV"]}`
 - **Assert** `tool_order` → required subsequence of `tool.start` names (not necessarily contiguous)
   - Example: `{"kind":"Assert","spec":{"tool_order":["lookup","book"]}}`

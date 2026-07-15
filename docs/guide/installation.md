@@ -540,7 +540,7 @@ Assert highlights (for scenario authors after setup):
 - `recovery` — agent re-engages after barge  
 - `ended_by` — `sim` | `agent` | `detect` after script `hang_up` or natural end  
 - `goals_met` — LLM judge verifies caller pursued N persona goals before `[END_CALL]` (hard fail)  
-- `constraint_respected` — hard fail if caller transcript leaks `must_not_phrases` / `must_not_patterns`  
+- `constraint_respected` — hard fail if caller transcript leaks `must_not_phrases` / `must_not_match`  
 - `tool_order` — required subsequence of `tool.start` names  
 
 Persona prompt now uses numbered GOAL checklist + guardrails against premature end.
