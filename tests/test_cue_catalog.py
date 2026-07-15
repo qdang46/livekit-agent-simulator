@@ -23,6 +23,13 @@ def test_resolve_vocal_voice_aliases() -> None:
         ("voice.barge_sorry", "barge_sorry_en.wav"),
         ("voice.backchannel", "backchannel_uhhuh_en.wav"),
         ("voice.barge_vi", "barge_wait_vi.wav"),
+        ("voice.correction", "barge_correction_en.wav"),
+        ("voice.escalate", "barge_escalate_en.wav"),
+        ("voice.soft", "barge_soft_en.wav"),
+        ("voice.backchannel_yeah", "backchannel_yeah_en.wav"),
+        ("voice.backchannel_vi", "backchannel_vi.wav"),
+        ("voice.barge_long_vi", "barge_long_vi.wav"),
+        ("voice.human", "barge_escalate_en.wav"),
     ):
         p = resolve_cue_asset(f"builtin:{alias}")
         assert p.is_file(), alias
