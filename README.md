@@ -267,6 +267,8 @@ lk-sim web --root /path/to/target
 {"kind":"PassCriteria","spec":{"criteria":["The agent responded to the caller","The agent responded in the caller's language"]}}
 ```
 
+Optional multi-judge PassCriteria: `judges[]` + `mode` (`all` \| `majority` \| `any`). Assert highlights (`tool_order`, `constraint_respected`, recovery/latency): `lk-sim guide`.
+
 Full-line `//` comments in scaffolded JSONL are guides — runtime ignores them.
 
 ---
@@ -314,7 +316,7 @@ CLI and MCP share the same public ops (`ops.py`). Prefer `execute` (validate the
 | `status` | `get_run_status` | SQLite run status |
 | `log` | `get_run_log` | Filtered `events.jsonl` |
 | `report` | `get_run_report` | Summary + verdict + paths |
-| `compare` | `compare_runs` | Diff two runs |
+| `compare` | `compare_runs` | Diff two runs; `--baseline` hard-fails on latency/assert / barge-recovery regression |
 | `runs` | `list_runs` | Run history |
 | `mcp` | — | Start MCP server (stdio) |
 
@@ -323,6 +325,7 @@ lk-sim execute smoke-hello --root /path/to/target
 lk-sim execute-all --tag smoke --root /path/to/target
 lk-sim log <run-id> --root /path/to/target
 lk-sim compare <run-a> <run-b> --root /path/to/target
+lk-sim compare <baseline> <candidate> --baseline --root /path/to/target
 lk-sim web --port 8765 --root /path/to/target
 ```
 
@@ -490,7 +493,7 @@ Same ops. Use CLI in terminals/CI; MCP inside coding agents. Prefer `execute_*` 
 
 ### Can I assert on tool calls?
 
-Yes — map data topics with `observe.tool_event_patterns`, use Script/assert plugins, and/or PassCriteria + judge. See [`docs/plugins.md`](docs/plugins.md).
+Yes — `Assert.spec.tools`, **`tool_order`** (required `tool.start` subsequence), `observe.tool_event_patterns`, Script/assert plugins, and/or PassCriteria + judge. See [`docs/plugins.md`](docs/plugins.md) and `lk-sim guide`.
 
 ### Where are reports stored?
 
@@ -510,7 +513,9 @@ No — `lk-sim web` serves the prebuilt player from the install pack. Maintainer
 | [docs/smoke-test.md](docs/smoke-test.md) | First end-to-end run |
 | [docs/portability.md](docs/portability.md) | Consumer dispatch / observe setup |
 | [docs/plugins.md](docs/plugins.md) | Verify plugins + Python API |
-| `lk-sim guide` | On-demand setup/ops guide |
+| [docs/telephony.md](docs/telephony.md) | SIP modes + outbound_sim_callee preflight |
+| [docs/interrupt-scenario-matrix.md](docs/interrupt-scenario-matrix.md) | Barge / backchannel / noise authoring |
+| `lk-sim guide` | On-demand setup/ops guide (Assert, compare --baseline, PassCriteria) |
 
 ---
 

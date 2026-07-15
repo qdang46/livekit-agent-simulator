@@ -522,6 +522,8 @@ lk-sim runs --root "$TARGET_ROOT"
 lk-sim report <run-id> --root "$TARGET_ROOT"
 lk-sim log <run-id> --kind "transcript.*" --root "$TARGET_ROOT"
 lk-sim web --root "$TARGET_ROOT"    # http://127.0.0.1:8765 — Ctrl+C to stop
+# CI golden gate (exit 1 on regression):
+# lk-sim compare <baseline-run> <candidate-run> --baseline --root "$TARGET_ROOT"
 ```
 
 Promote a failure to a draft regression case:
@@ -538,13 +540,18 @@ Assert highlights (for scenario authors after setup):
 - `recovery` — agent re-engages after barge  
 - `ended_by` — `sim` | `agent` | `detect` after script `hang_up` or natural end  
 - `goals_met` — LLM judge verifies caller pursued N persona goals before `[END_CALL]` (hard fail)  
+- `constraint_respected` — hard fail if caller transcript leaks `must_not_phrases` / `must_not_patterns`  
+- `tool_order` — required subsequence of `tool.start` names  
 
 Persona prompt now uses numbered GOAL checklist + guardrails against premature end.
 The caller must work through all goals; early `[END_CALL]` causes a failed test.
 
 ```jsonl
 {"kind":"Assert","spec":{"outcomes":[{"id":"caller_pursued_goals","type":"goals_met","min_goals":2,"goals":["Hear greeting","Get info"]}]}}
+{"kind":"Assert","spec":{"tool_order":["lookup","book"],"outcomes":[{"id":"no_card","type":"constraint_respected","must_not_phrases":["4111"]}]}}
 ```
+
+PassCriteria can use flat `criteria[]` or multi-judge `judges[]` + `mode` (`all` \| `majority` \| `any`). Full recipes: `lk-sim guide`.
 
 Script action `hang_up` makes the sim caller leave the room (hard hangup).
 

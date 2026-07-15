@@ -168,9 +168,9 @@ lk-sim scenario-init my-case --root /path/to/target
 | `Telephony` | no if WebRTC | SIP dial params: `call_to` / `dial_in` / `sip_trunk_id` / `prepare_ms` (overrides config) |
 | `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`, `hang_ups`) |
 | `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
-| `Assert` | no | tools / transcript / **`sip`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, **`goals_met`**, `llm_bool`) |
+| `Assert` | no | tools / transcript / **`sip`** / **`tool_order`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, **`goals_met`**, **`constraint_respected`**, `llm_bool`) |
 | `Plugins` | no | Load local verify modules — see **Verify plugins** below |
-| `PassCriteria` | no | Soft LLM judge rubric |
+| `PassCriteria` | no | Soft LLM judge rubric — flat `criteria[]` **or** `judges[]` + `mode` (`all` \| `majority` \| `any`) |
 
 ### Caller character (Hamming-aligned)
 
@@ -180,7 +180,8 @@ lk-sim scenario-init my-case --root /path/to/target
 - **constraints[]** → hard rules in Gemini system prompt  
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
   - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
-- **Behavior** kind → explicit barge/silence/ambient policies  
+  - `noise_gain` / `barge_gain` (`0.0`–`1.0`) scale auto-compiled ambient / barge cues (also per-step Script `gain` / `volume`)  
+- **Behavior** kind → explicit barge/silence/ambient policies; set Script step `class` (`correction` \| `backchannel` \| `noise` \| `dtmf` \| `silence` \| `escalate`) so recovery metrics and web chips stay honest  
 - **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)
 - **Assert** `outcomes` type **`latency`** → hard CI gates on turn p50/p95, TTFW, recovery percentiles, barge recovery rate
   - Example: `{"id":"speed","type":"latency","max_turn_p95_ms":3500,"max_ttfw_ms":5000,"require_turn_samples":1}`
@@ -189,9 +190,29 @@ lk-sim scenario-init my-case --root /path/to/target
 - **Assert** `outcomes` type **`goals_met`** → LLM judge verifies the simulated caller stated/pursued at least N persona goals before `[END_CALL]` (hard fail if not met)
   - Example: `{"id":"goals_done","type":"goals_met","min_goals":2,"goals":["Hear greeting","Ask about pricing"]}`
   - Without explicit `goals`, falls back to `Persona.spec.goals` from the scenario
+- **Assert** `outcomes` type **`constraint_respected`** → hard fail if **caller** transcript contains forbidden phrases/patterns (`must_not_phrases` and/or `must_not_patterns`)
+  - Example: `{"id":"no_card","type":"constraint_respected","must_not_phrases":["4111","CVV"]}`
+- **Assert** `tool_order` → required subsequence of `tool.start` names (not necessarily contiguous)
+  - Example: `{"kind":"Assert","spec":{"tool_order":["lookup","book"]}}`
 - **Script action `hang_up`** → sim caller disconnects from room (cúp máy thật)
   - Example: `{"id":"hangup","action":"hang_up","trigger":"time","delay_ms":5000,"say":"Thôi em cúp đây"}`  
 - See https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/caller-pattern-plan.md and `templates/examples/character-impatient.jsonl` (shipped in package after `init`)
+
+### PassCriteria (soft judge)
+
+Flat list (backward compatible):
+
+```jsonl
+{"kind":"PassCriteria","spec":{"criteria":["The agent answered the caller's question"]}}
+```
+
+Multi-judge groups (aggregate with `mode`):
+
+```jsonl
+{"kind":"PassCriteria","spec":{"mode":"majority","judges":[{"id":"task","criteria":["Task completed"]},{"id":"tone","criteria":["Polite tone"]}]}}
+```
+
+`mode`: `all` (default) \| `majority` \| `any`. Still soft unless you pass `--strict-judge`. Needs `judge.model` in config.
 
 ### Audio cues (built-in + per-repo custom)
 
@@ -352,11 +373,21 @@ Full guide: https://github.com/quangdang46/livekit-agent-simulator/blob/main/doc
 | `status` | `get_run_status` |
 | `log` | `get_run_log` |
 | `report` | `get_run_report` |
-| `compare` | `compare_runs` |
+| `compare` | `compare_runs` (optional `--baseline` hard regression gate) |
 | `runs` | `list_runs` |
 | `mcp` | *(stdio server — all tools above)* |
 
 There is **no** separate `run` command — always validate-then-run via `execute*`.
+
+Golden baseline gate (CI): treat run A as baseline, fail exit `1` if candidate regresses:
+
+```bash
+lk-sim compare <baseline-run> <candidate-run> --baseline --root /path/to/target
+# thresholds: --max-ttfw-regression-ms · --max-turn-p95-regression-ms ·
+#             --max-duration-regression-ms · --max-barge-recovery-drop
+```
+
+Without `--baseline`, `compare` is a soft metric/assert diff only.
 
 MCP for coding agents (Claude, Cursor, Windsurf, VS Code, …):
 
@@ -399,7 +430,8 @@ lk-sim log <run-id> --kind "sim.script*" --root /path/to/target
 lk-sim runs --root /path/to/target
 lk-sim web --root /path/to/target              # home list of all scenarios/runs
 lk-sim web <run-id> --root /path/to/target     # deep-link a specific run
-# Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for barge / silence / recovery / tools
+# Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for
+# barge / backchannel / false_interrupt / dtmf / silence / recovery / tools
 # Middle column shows agent actions (script cues + tool cards with args/output when L3 enabled)
 ```
 
