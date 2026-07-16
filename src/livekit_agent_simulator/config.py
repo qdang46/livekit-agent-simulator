@@ -168,7 +168,7 @@ def load_config(project_root: Path | str) -> SimConfig:
     config_path = project_root / DOT_FOLDER / CONFIG_FILENAME
     if not config_path.exists():
         raise ConfigError(
-            f"{config_path} not found. Run `lk-sim init` (or the `init_project` MCP tool) "
+            f"{config_path} not found. Run `lks init` (or the `init_project` MCP tool) "
             f"to scaffold {DOT_FOLDER}/ first."
         )
 

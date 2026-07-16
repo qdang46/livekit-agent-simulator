@@ -424,7 +424,7 @@ def resolve_cue_asset(
         tried.append(str(path))
         raise FileNotFoundError(
             f"Built-in cue not found: {asset}. Tried: {tried}. "
-            f"List with: lk-sim cues"
+            f"List with: lks cues"
         )
 
     candidates: list[Path] = []
@@ -460,7 +460,7 @@ def resolve_cue_asset(
     raise FileNotFoundError(
         f"Cue asset not found: {asset}. Tried: {tried}. "
         f"Put WAV under .agent-sim/cues/, next to the scenario, or use builtin:noise.loud. "
-        f"See lk-sim cues --root <target>"
+        f"See lks cues --root <target>"
     )
 
 

@@ -1,4 +1,4 @@
-"""`lk-sim` CLI — same public ops as the MCP server (see ops module docstring).
+"""`lks` CLI (alias: `lk-sim`) — same public ops as the MCP server (see ops module docstring).
 
 Defaults project root to CWD; use `--root` for another target repo.
 """
@@ -30,8 +30,8 @@ from .config import ConfigError
 from .scenario import ScenarioError
 
 app = typer.Typer(
-    name="lk-sim",
-    help="Simulate an AI caller against a LiveKit voice agent (parity with MCP tools).",
+    name="lks",
+    help="Simulate an AI caller against a LiveKit voice agent (parity with MCP tools). Alias: lk-sim.",
 )
 
 ROOT_OPTION = typer.Option(None, "--root", help="Project root (default: current directory)")
@@ -471,7 +471,7 @@ def mcp_serve() -> None:
         {
           "mcpServers": {
             "livekit-agent-simulator": {
-              "command": "lk-sim",
+              "command": "lks",
               "args": ["mcp"]
             }
           }

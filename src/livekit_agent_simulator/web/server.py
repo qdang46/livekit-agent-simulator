@@ -21,7 +21,7 @@ DEFAULT_PORT = 8765
 
 
 def _player_dir() -> Path:
-    """Built static assets for ``lk-sim web`` (wheel ``web_static`` or checkout ``web/dist``)."""
+    """Built static assets for ``lks web`` (wheel ``web_static`` or checkout ``web/dist``)."""
     return package_web_dir()
 
 
@@ -290,7 +290,7 @@ def start_web_server(
             f"Web UI assets missing: {player_dir}/index.html — "
             "maintainers: pnpm --dir web install && pnpm --dir web build "
             "(CI attaches web/dist into the wheel as web_static; "
-            "or use pnpm --dir web dev with lk-sim web in another terminal)"
+            "or use pnpm --dir web dev with lks web in another terminal)"
         )
 
     runs = list_run_ids(reports_dir)

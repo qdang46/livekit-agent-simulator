@@ -1,7 +1,7 @@
 # livekit-agent-simulator
 
 <div align="center">
-  <img src="lk_sim_illustration.webp" alt="lk-sim — livekit-agent-simulator: black-box LiveKit agent tests with WebRTC, Inbound, Outbound" width="720">
+  <img src="lk_sim_illustration.webp" alt="lks — livekit-agent-simulator: black-box LiveKit agent tests with WebRTC, Inbound, Outbound" width="720">
 </div>
 
 <div align="center">
@@ -15,7 +15,7 @@
 </div>
 
 **Dial any LiveKit voice agent with an AI simulated caller — WebRTC room, inbound SIP, or outbound SIP — and keep a full forensic log.**  
-Standalone MCP server + CLI (`lk-sim`). Black-box testing: no imports from the agent under test, no edits to its code or `.env`.
+Standalone MCP server + CLI (`lks`, alias: `lk-sim`). Black-box testing: no imports from the agent under test, no edits to its code or `.env`.
 
 <div align="center">
 <h3>Quick Install</h3>
@@ -32,10 +32,10 @@ curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulato
 Paste into Claude Code, Cursor, Codex, AmpCode, Windsurf, or any coding agent **from the repo you want to test**:
 
 ```text
-Install and configure livekit-agent-simulator (CLI: lk-sim) for this project by following the instructions here:
+Install and configure livekit-agent-simulator (CLI: lks) for this project by following the instructions here:
 https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md
 
-Target project root is this workspace. Use absolute --root paths. Install the portable CLI if missing, run lk-sim init, help fill .agent-sim/config.yaml from my local env or ask me for LiveKit + Gemini + agent_name, ensure .agent-sim is gitignored, run preflight, and stop before execute if the voice agent worker is not running. Do not edit agent application source outside .agent-sim/.
+Target project root is this workspace. Use absolute --root paths. Install the portable CLI if missing, run lks init, help fill .agent-sim/config.yaml from my local env or ask me for LiveKit + Gemini + agent_name, ensure .agent-sim is gitignored, run preflight, and stop before execute if the voice agent worker is not running. Do not edit agent application source outside .agent-sim/.
 ```
 
 Same idea, one line:
@@ -65,13 +65,13 @@ Voice agents fail in ways unit tests never see:
 
 | Surface | What you get |
 |---------|--------------|
-| `lk-sim` CLI | init → preflight → execute → report → web |
+| `lks` CLI | init → preflight → execute → report → web |
 | MCP server | Same ops for Claude Code, Cursor, Codex, … |
 | Transport modes | `webrtc_sim` · `inbound_sip` · `outbound_human_pickup` · `outbound_sim_callee` (optional `agent_dials`) |
 | Reports | `events.jsonl`, `timeline.md`, `summary.json`, optional stereo WAV |
 | Judge | Optional LLM PassCriteria scoring |
 
-### Why Use lk-sim?
+### Why Use lks?
 
 | Feature | What it does |
 |---------|--------------|
@@ -93,13 +93,13 @@ curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulato
   | bash -s -- --verify
 
 # In the repo you want to test (agent worker must already be running)
-lk-sim init --root /path/to/target
+lks init --root /path/to/target
 # edit /path/to/target/.agent-sim/config.yaml  (LiveKit + Gemini keys, agent_name)
 
-lk-sim preflight --root /path/to/target
-lk-sim execute smoke-hello --root /path/to/target
-lk-sim report <run-id> --root /path/to/target
-lk-sim web --root /path/to/target          # Ctrl+C to stop
+lks preflight --root /path/to/target
+lks execute smoke-hello --root /path/to/target
+lks report <run-id> --root /path/to/target
+lks web --root /path/to/target          # Ctrl+C to stop
 ```
 
 ---
@@ -158,16 +158,16 @@ Mode details and config: [docs/telephony.md](docs/telephony.md). Templates: `inb
 
 ---
 
-## How lk-sim Compares
+## How lks Compares
 
 | Approach | Real room | AI caller | Forensic log | MCP | Black-box |
 |----------|-----------|-----------|--------------|-----|-----------|
 | Manual phone QA | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Unit / mock STT | ❌ | ❌ | Partial | ❌ | ❌ |
 | In-repo agent tests | ⚠️ | ⚠️ | Varies | ❌ | Often coupled |
-| **lk-sim** | ✅ LiveKit | ✅ Gemini Live | ✅ Full | ✅ | ✅ |
+| **lks** | ✅ LiveKit | ✅ Gemini Live | ✅ Full | ✅ | ✅ |
 
-**When to use lk-sim:**
+**When to use lks:**
 - Regression suites for LiveKit voice agents
 - Agent-driven CI / coding-agent workflows (MCP)
 - Debugging turn-taking, tools, and silence without reading agent source
@@ -210,7 +210,7 @@ curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/down
 | `--no-mcp` | Skip MCP registration into coding tools |
 | `--uninstall` | Remove install |
 
-By default the installer registers the MCP server `livekit-agent-simulator` (`lk-sim mcp`) into detected tools: Claude Code, Cursor, Cline, Windsurf, VS Code Copilot, Gemini CLI, Amazon Q, OpenCode, Codex, Warp.
+By default the installer registers the MCP server `livekit-agent-simulator` (`lks mcp`) into detected tools: Claude Code, Cursor, Cline, Windsurf, VS Code Copilot, Gemini CLI, Amazon Q, OpenCode, Codex, Warp.
 
 **Agent-oriented install playbook (long form):** [docs/guide/installation.md](docs/guide/installation.md)  
 Raw URL for paste into agents:  
@@ -222,7 +222,7 @@ Raw URL for paste into agents:
 git clone https://github.com/quangdang46/livekit-agent-simulator.git
 cd livekit-agent-simulator
 uv sync --extra dev
-uv run lk-sim --help
+uv run lks --help
 ```
 
 Requires **Python 3.10–3.13**.
@@ -234,7 +234,7 @@ Users never build this — CI packs `web/dist` into the wheel as `web_static`. S
 ```bash
 pnpm --dir web install
 pnpm --dir web build                    # → web/dist/ (attached by Hatch on uv build)
-pnpm --dir web dev                      # HMR; proxy /api + /runs → lk-sim web :8765
+pnpm --dir web dev                      # HMR; proxy /api + /runs → lks web :8765
 ```
 
 See `web/README.md`.
@@ -245,17 +245,17 @@ See `web/README.md`.
 
 ```bash
 # Agent worker must be running and registered with LiveKit
-lk-sim guide
-lk-sim init --root /path/to/target
+lks guide
+lks init --root /path/to/target
 # fill .agent-sim/config.yaml
 
-lk-sim preflight --root /path/to/target
-lk-sim scenario-init smoke-hello --root /path/to/target   # if needed
-lk-sim validate smoke-hello --root /path/to/target
-lk-sim execute smoke-hello --root /path/to/target
-lk-sim runs --root /path/to/target
-lk-sim report <run-id> --root /path/to/target
-lk-sim web --root /path/to/target
+lks preflight --root /path/to/target
+lks scenario-init smoke-hello --root /path/to/target   # if needed
+lks validate smoke-hello --root /path/to/target
+lks execute smoke-hello --root /path/to/target
+lks runs --root /path/to/target
+lks report <run-id> --root /path/to/target
+lks web --root /path/to/target
 ```
 
 ### Minimal scenario (`smoke-hello`)
@@ -267,7 +267,7 @@ lk-sim web --root /path/to/target
 {"kind":"PassCriteria","spec":{"criteria":["The agent responded to the caller","The agent responded in the caller's language"]}}
 ```
 
-Optional multi-judge PassCriteria: `judges[]` + `mode` (`all` \| `majority` \| `any`). Assert highlights (`tool_order`, `constraint_respected`, recovery/latency): `lk-sim guide`.
+Optional multi-judge PassCriteria: `judges[]` + `mode` (`all` \| `majority` \| `any`). Assert highlights (`tool_order`, `constraint_respected`, recovery/latency): `lks guide`.
 
 Full-line `//` comments in scaffolded JSONL are guides — runtime ignores them.
 
@@ -321,12 +321,12 @@ CLI and MCP share the same public ops (`ops.py`). Prefer `execute` (validate the
 | `mcp` | — | Start MCP server (stdio) |
 
 ```bash
-lk-sim execute smoke-hello --root /path/to/target
-lk-sim execute-all --tag smoke --root /path/to/target
-lk-sim log <run-id> --root /path/to/target
-lk-sim compare <run-a> <run-b> --root /path/to/target
-lk-sim compare <baseline> <candidate> --baseline --root /path/to/target
-lk-sim web --port 8765 --root /path/to/target
+lks execute smoke-hello --root /path/to/target
+lks execute-all --tag smoke --root /path/to/target
+lks log <run-id> --root /path/to/target
+lks compare <run-a> <run-b> --root /path/to/target
+lks compare <baseline> <candidate> --baseline --root /path/to/target
+lks web --port 8765 --root /path/to/target
 ```
 
 Every MCP tool needs `project_root` **except** `guide`.
@@ -339,7 +339,7 @@ Installer writes this when tools are detected. Manual Cursor:
 {
   "mcpServers": {
     "livekit-agent-simulator": {
-      "command": "lk-sim",
+      "command": "lks",
       "args": ["mcp"],
       "env": {}
     }
@@ -354,13 +354,13 @@ Dev checkout (package not installed globally):
   "mcpServers": {
     "livekit-agent-simulator": {
       "command": "uv",
-      "args": ["run", "--directory", "/abs/path/livekit-agent-simulator", "lk-sim", "mcp"]
+      "args": ["run", "--directory", "/abs/path/livekit-agent-simulator", "lks", "mcp"]
     }
   }
 }
 ```
 
-Equivalent one-shot entry: `lk-sim-mcp` (same process as `lk-sim mcp`).
+Equivalent one-shot entry: `lks-mcp` (alias: `lk-sim-mcp`; same process as `lks mcp` / `lk-sim mcp`).
 
 ---
 
@@ -394,7 +394,7 @@ src/livekit_agent_simulator/
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| [CI](.github/workflows/ci.yml) | PR / push → `main` | web UI build, `pytest` (3.10 + 3.12), `lk-sim --help` |
+| [CI](.github/workflows/ci.yml) | PR / push → `main` | web UI build, `pytest` (3.10 + 3.12), `lks --help` |
 | [Release](.github/workflows/release.yml) | tag `v*` | pytest → wheel → portable packs (win/linux/mac) → GitHub Release |
 
 ```bash
@@ -415,10 +415,10 @@ git push origin v0.1.0
 ### `preflight` fails connectivity
 
 ```bash
-lk-sim preflight --root /path/to/target
+lks preflight --root /path/to/target
 # Confirm livekit.url / api_key / api_secret and that the project is reachable.
 # Skip API check while editing config:
-lk-sim preflight --no-connectivity --root /path/to/target
+lks preflight --no-connectivity --root /path/to/target
 ```
 
 ### Agent never joins the room
@@ -436,13 +436,13 @@ Set `simulator.google_api_key` in `.agent-sim/config.yaml`. The sim caller uses 
 With `observe.record_audio` enabled (default `true`): `reports/<run-id>/conversation.wav`
 
 ```bash
-lk-sim web --root /path/to/target
+lks web --root /path/to/target
 ```
 
 ### MCP tools not listed
 
 ```bash
-lk-sim mcp   # must be what the host launches
+lks mcp   # must be what the host launches
 # or reinstall without --no-mcp
 curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" \
   | bash -s -- --verify
@@ -451,15 +451,15 @@ curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulato
 ### Scenario validation errors
 
 ```bash
-lk-sim validate my-case --root /path/to/target
-lk-sim scenario-init my-case --root /path/to/target   # fresh scaffold with // guides
+lks validate my-case --root /path/to/target
+lks scenario-init my-case --root /path/to/target   # fresh scaffold with // guides
 ```
 
 ---
 
 ## Limitations
 
-### What lk-sim Doesn't Do (Yet)
+### What lks Doesn't Do (Yet)
 
 - **Not an agent framework** — it tests agents; it does not implement business tools
 - **Not offline-first** — needs LiveKit + Gemini (or configured backends)
@@ -493,7 +493,7 @@ Same ops. Use CLI in terminals/CI; MCP inside coding agents. Prefer `execute_*` 
 
 ### Can I assert on tool calls?
 
-Yes — `Assert.spec.tools`, **`tool_order`** (required `tool.start` subsequence), `observe.tool_event_patterns`, Script/assert plugins, and/or PassCriteria + judge. See [`docs/plugins.md`](docs/plugins.md) and `lk-sim guide`.
+Yes — `Assert.spec.tools`, **`tool_order`** (required `tool.start` subsequence), `observe.tool_event_patterns`, Script/assert plugins, and/or PassCriteria + judge. See [`docs/plugins.md`](docs/plugins.md) and `lks guide`.
 
 ### Where are reports stored?
 
@@ -501,7 +501,7 @@ Yes — `Assert.spec.tools`, **`tool_order`** (required `tool.start` subsequence
 
 ### Is the report player separate?
 
-No — `lk-sim web` serves the prebuilt player from the install pack. Maintainers build from `web/`.
+No — `lks web` serves the prebuilt player from the install pack. Maintainers build from `web/`.
 
 ---
 
@@ -515,7 +515,7 @@ No — `lk-sim web` serves the prebuilt player from the install pack. Maintainer
 | [docs/plugins.md](docs/plugins.md) | Verify plugins + Python API |
 | [docs/telephony.md](docs/telephony.md) | SIP modes + outbound_sim_callee preflight |
 | [docs/interrupt-scenario-matrix.md](docs/interrupt-scenario-matrix.md) | Barge / backchannel / noise authoring |
-| `lk-sim guide` | On-demand setup/ops guide (Assert, compare --baseline, PassCriteria) |
+| `lks guide` | On-demand setup/ops guide (Assert, compare --baseline, PassCriteria) |
 
 ---
 

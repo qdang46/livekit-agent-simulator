@@ -14,8 +14,8 @@ The agent STT hears this audio (parallel with Gemini speech via `ParallelMicMixe
 | **Next to scenario** | same folder as `.jsonl` | relative path |
 
 ```bash
-lk-sim cues --root /path/to/target
-lk-sim cues --root /path/to/target --resolve builtin:voice.correction
+lks cues --root /path/to/target
+lks cues --root /path/to/target --resolve builtin:voice.correction
 ```
 
 Regenerate EN SAPI vocals (Windows):
@@ -36,7 +36,7 @@ Regenerate EN SAPI vocals (Windows):
 
 ### Voice interrupt (Hamming-aligned)
 
-Canonical descriptions also live in code (`BUILTIN_CUES` → `lk-sim cues`).
+Canonical descriptions also live in code (`BUILTIN_CUES` → `lks cues`).
 
 | ID | File | Class | Notes |
 |----|------|-------|--------|

@@ -24,8 +24,12 @@ dev = [
 ]
 
 [project.scripts]
+# Primary CLI
+lks = "livekit_agent_simulator.cli:main"
+# Backward-compatible alias
 lk-sim = "livekit_agent_simulator.cli:main"
-# Optional short entry (same as `lk-sim mcp`) for hosts that prefer a single argv[0]
+# Optional one-shot MCP entries (same as `lks mcp` / `lk-sim mcp`)
+lks-mcp = "livekit_agent_simulator.mcp_server:main"
 lk-sim-mcp = "livekit_agent_simulator.mcp_server:main"
 
 [build-system]

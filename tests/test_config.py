@@ -71,7 +71,7 @@ def test_record_audio_can_be_disabled(tmp_path):
 
 
 def test_missing_config_file(tmp_path):
-    with pytest.raises(ConfigError, match="lk-sim init"):
+    with pytest.raises(ConfigError, match="lks init"):
         load_config(tmp_path)
 
 

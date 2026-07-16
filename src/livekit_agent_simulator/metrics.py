@@ -2,7 +2,7 @@
 
 Black-box definitions (what we can measure without agent internals):
 
-| Metric | Definition (lk-sim) | Industry analog |
+| Metric | Definition (lks) | Industry analog |
 |---|---|---|
 | ``turn_taking_ms`` | user.final → first agent.final in that turn | Turn latency / TTFA per turn |
 | ``ttfw_ms`` | run start → first agent speech (final or preamble) | Call-level Time to First Word |
