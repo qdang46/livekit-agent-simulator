@@ -7,6 +7,7 @@ from livekit_agent_simulator.caller.default_policy import DefaultCallerPolicy
 from livekit_agent_simulator.caller.policy import CallerPolicyContext, MidcallCue
 from livekit_agent_simulator.caller.prompt_sections import (
     ConstraintsSection,
+    ContextSection,
     FirstSpeakerSection,
     GoalsSection,
     GuardrailsSection,
@@ -197,3 +198,26 @@ def test_first_speaker_user_dialogue_in_si():
     )
     joined = "\n".join(FirstSpeakerSection().render(ctx))
     assert "You speak first" in joined
+
+
+def test_context_notes_not_injected_into_si():
+    ctx = CallerPolicyContext(
+        persona={},
+        locale="en-US",
+        context={
+            "notes": "Dialogue mode — no Script. Use first_speaker=user.",
+            "caller_knows": "You only need the basic plan.",
+            "fixtures": {"preferred_plan": "basic"},
+        },
+    )
+    joined = "\n".join(ContextSection().render(ctx))
+    assert "Dialogue mode" not in joined
+    assert "basic plan" in joined
+    assert "preferred_plan=basic" in joined
+
+
+def test_dialogue_guardrails_one_goodbye():
+    ctx = CallerPolicyContext(persona={"goals": ["Ask fee"]}, locale="en-US", script_steps=[])
+    joined = "\n".join(GuardrailsSection().render(ctx))
+    assert "ONE short goodbye" in joined
+    assert "thank-you loops" in joined

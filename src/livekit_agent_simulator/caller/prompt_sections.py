@@ -193,10 +193,23 @@ class SpeechConditionsSection:
 
 class ContextSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
+        """Caller world hints only — never inject author/harness ``notes`` into SI.
+
+        ``Context.notes`` are for humans reading the JSONL / reports. Putting
+        \"Dialogue mode — no Script\" into the model as \"Background context you
+        know\" makes the caller act like a test harness instead of a person.
+        """
         lines: list[str] = []
-        notes = ctx.context.get("notes")
-        if notes:
-            lines.append(f"Background context you know: {notes}")
+        # Prefer explicit caller-facing keys if present; ignore author notes.
+        knows = ctx.context.get("caller_knows") or ctx.context.get("world")
+        if isinstance(knows, str) and knows.strip():
+            lines.append(f"Things you already know about this call: {knows.strip()}")
+        elif isinstance(knows, list):
+            bits = [str(x).strip() for x in knows if str(x).strip()]
+            if bits:
+                lines.append(
+                    "Things you already know about this call: " + "; ".join(bits[:12])
+                )
         fixtures = ctx.context.get("fixtures")
         if isinstance(fixtures, dict) and fixtures:
             # Opaque hints — core does not interpret business keys.
@@ -279,8 +292,10 @@ class GuardrailsSection:
         else:
             lines.extend(
                 [
-                    "When all goals are handled (or desired outcome is met), say a short goodbye in your language only, "
-                    "then append the exact harness marker [END_CALL] once and stop speaking.",
+                    "When your desired outcome is met (or unmistakably impossible after you tried), "
+                    "say ONE short goodbye in your language and stop speaking. "
+                    "A clear bye/goodbye ends the call — do not linger in thank-you loops. "
+                    "Optionally append [END_CALL] once for the harness (do not read brackets aloud).",
                 ]
             )
         lines.extend(

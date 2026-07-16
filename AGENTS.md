@@ -147,6 +147,8 @@ Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] 
 - **Dispatch** — opaque metadata for `RoomAgentDispatch`.
 - **Script** — timed caller cues (`agent_speaking` + `delay_ms`); `delivery: room_pcm` plays WAV into sim mic; log verify via `script_verify` and optional **verify plugins** (`docs/plugins.md`).
 - **PassCriteria** — optional LLM judge rubric.
+- **Context.notes** — author-only (reports/docs); **not** injected into the caller SI.
+- **Context.caller_knows** / **world** — optional facts the persona already knows (injected).
 
 ---
 
