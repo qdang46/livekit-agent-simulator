@@ -188,10 +188,15 @@ lks scenario-init my-case --root /path/to/target
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
   - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
   - `noise_gain` / `barge_gain` (`0.0`–`1.0`) scale auto-compiled ambient / barge cues (also per-step Script `gain` / `volume`)
+<<<<<<< HEAD
   - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`, default `1.0`; aliases `voice_volume` / `volume`) scales **speech** PCM after Gemini Live (freestyle + inject). Noise beds are unchanged. Gemini Live has **no** native volume/speed API.
   - **Voice speed:** not supported on Gemini Live (`SpeechConfig` is voice name + language only). Do not ship a fake `voice_speed` flag; use soft traits or pre-recorded Script WAVs. Track upstream Live `speech_rate` if Google adds it.
   - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`) scales speech PCM after Gemini Live (see example `quiet-caller-confirm`).
   - **Silent mode (dead air):** `speech_conditions.silent_mode: true` — caller stays mute for the whole call (Coval Silent Mode). Disables freestyle, agent-greeted nudge, auto barge/noise; hang_up is silent. Use for reprompt/timeout QA.
+=======
+  - **Quiet caller:** `speech_conditions.voice_gain` (`0.0`–`1.0`) — STT stress (PCM scale).
+  - **Silent mode:** `speech_conditions.silent_mode: true` — dead-air / unresponsive caller.
+>>>>>>> 127f8ce (docs: installation lks primary + authoring validate gate for #27 PR)
   - **Continuous ambient bed:** `noise_when: "background"` (or Behavior/Script `"loop": true`) re-queues `room_pcm` noise until hang-up (parallel under speech). One-shot bursts stay default (`once` / no loop).  
 - **Behavior** kind → explicit barge/silence/ambient policies; set Script step `class` (`correction` \| `backchannel` \| `noise` \| `dtmf` \| `silence` \| `escalate`) so recovery metrics and web chips stay honest  
 - **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)
@@ -399,6 +404,48 @@ Full guide: https://github.com/quangdang46/livekit-agent-simulator/blob/main/doc
 | `plugins` | `list_plugins` |
 | `cues` | `list_cues` |
 | `validate` | `validate_scenario` |
+
+### Authoring quality gate (`validate`)
+
+**Rule-based soft checks — no LLM.** `lks validate` always returns `valid: true` when schema parses;
+authoring findings are **warnings only** (never fail CI by default).
+
+```bash
+lks validate my-case --root /path/to/target
+```
+
+Response includes:
+
+| Field | Meaning |
+|-------|---------|
+| `warnings[]` | Flat human messages (schema + authoring) |
+| `authoring.scorecard` | Dimensions 0–2 each: goals, constraints, behavior, assertion, risk_tags, interaction_proof (max 12) |
+| `authoring.tier` | Soft suite hint: `blocking` \| `scheduled` \| `exploratory` |
+| `authoring.warning_codes[]` | Machine codes (e.g. `empty_goals`, `barge_without_recovery`, `constraint_without_assert`) |
+| `authoring.warnings[]` | `{code, message, severity}` structured |
+
+Common codes:
+
+| Code | Fix |
+|------|-----|
+| `empty_goals` | Add `Persona.goals[]` job-to-be-done |
+| `barge_without_recovery` | Assert `type: recovery` (or script_verify min after barge) |
+| `constraint_without_assert` | Assert `type: constraint_respected` |
+| `stress_trait_without_interaction` | Add Script/Behavior/speech_conditions for interrupt stress |
+| `hang_up_without_ended_by` | Assert `type: ended_by` |
+| `no_risk_tag` / `no_tags` | Tag `smoke` \| `regression` \| `draft` \| `blocking` \| … |
+
+**Suite tiers (Cekura/Hamming-inspired, soft):**
+
+| Tier | When |
+|------|------|
+| `blocking` | High score, no critical wiring gaps — OK for PR CI subset |
+| `scheduled` | Mid quality — nightly / wider suite |
+| `exploratory` | Empty goals / barge without recovery / stress traits soft-only |
+
+Authoring quality ≠ execute hard gate (status/assert/script_verify after a run).
+
+
 | `export` | `export_scenario` |
 | `scenario-init` | `init_scenario` |
 | `execute` | `execute_scenario` (flags: ``--name``, ``--repeat N --pass-at-k K``, ``--strict-judge``) |
