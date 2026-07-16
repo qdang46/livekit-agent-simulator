@@ -111,6 +111,22 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
             min_agent = int(raw.get("min_agent_active_ms", 200))
             trigger = "agent_speaking"
             action = "speak"
+        # DTMF validation
+        digits = ""
+        if action == "dtmf":
+            raw_digits = str(raw.get("digits") or raw.get("digit") or "").strip()
+            allowed = set("0123456789*#w")
+            for ch in raw_digits:
+                if ch not in allowed:
+                    raise ValueError(
+                        f"{path_label}: Script step {step_id!r}: action=dtmf: "
+                        f"digits can only contain 0-9*#w (got {ch!r})"
+                    )
+            digits = raw_digits
+            say = "[DTMF: " + digits + "]"
+        # Backward compat: dtmf step defaults
+        if action == "dtmf" and trigger not in ("silence", "time"):
+            trigger = "time"
         # Default: blip on text barge; off when room_pcm (asset is the cut-in audio).
         if "with_blip" in raw:
             with_blip = bool(raw.get("with_blip"))
@@ -171,6 +187,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 trigger=trigger,
                 delay_ms=delay_ms,
                 say=str(say).strip(),
+                digits=digits,
                 label=str(raw.get("label") or step_id),
                 once=bool(raw.get("once", True)),
                 min_agent_active_ms=min_agent,

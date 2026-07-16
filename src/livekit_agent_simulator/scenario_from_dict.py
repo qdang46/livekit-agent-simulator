@@ -200,6 +200,7 @@ def export_scenario_dict(scenario: Scenario) -> dict[str, Any]:
                     "with_blip": s.with_blip,
                     "gain": s.gain,
                     "loop": s.loop,
+                    "digits": s.digits if s.action == "dtmf" else None,
                 }
                 for s in scenario.script_steps
             ],
