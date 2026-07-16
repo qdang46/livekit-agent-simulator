@@ -469,7 +469,7 @@ Typical MCP flow:
 2. `init_project` → `preflight`
 3. `list_scenarios` / `init_scenario` / `validate_scenario`
 4. `execute_scenario` (optional `run_name`, `repeat` / `pass_at_k`) or `execute_scenarios`
-5. `get_run_report` / `get_run_log` / `web` (report dirs look like `001-smoke-hello`)
+5. `get_run_report` / `get_run_log` / `web` (report dirs look like `001-smoke-hello-YYYYMMDD-HHMMSS-xxxx`)
 6. On failure: `scenario_from_run` → review draft → re-run
 
 ---
@@ -509,10 +509,10 @@ lk-sim validate smoke-hello --root "$TARGET_ROOT"
 
 ```bash
 lk-sim execute smoke-hello --root "$TARGET_ROOT"
-# → .agent-sim/reports/001-smoke-hello/  (NNN auto-increments from existing report folders)
+# → .agent-sim/reports/001-smoke-hello-YYYYMMDD-HHMMSS-xxxx/  (NNN + UTC stamp; unique vs SQLite)
 
 lk-sim execute smoke-hello --name demo --root "$TARGET_ROOT"
-# → .agent-sim/reports/002-demo/  (--name overrides the slug after the seq prefix)
+# → .agent-sim/reports/002-demo-YYYYMMDD-HHMMSS-xxxx/  (--name overrides the slug after the seq prefix)
 
 # flake control (each iteration gets its own NNN folder):
 lk-sim execute smoke-hello --root "$TARGET_ROOT" --repeat 3 --pass-at-k 2
@@ -521,15 +521,16 @@ lk-sim execute-all --tag smoke --root "$TARGET_ROOT"
 # lk-sim execute-all --tag smoke --parallel 2 --root "$TARGET_ROOT"
 ```
 
-`run_id` format: `{NNN}-{slug}` — default slug is the scenario id; `--name` / MCP `run_name`
-replaces the slug only (`scenario_id` remains in `meta.json`).
+`run_id` format: `{NNN}-{slug}-{YYYYMMDD}-{HHMMSS}-{xxxx}` — default slug is the scenario id;
+`--name` / MCP `run_name` replaces the slug only (`scenario_id` remains in `meta.json`).
+Timestamp + hex keep ids unique when a report folder was deleted but SQLite still has the row.
 
 Inspect:
 
 ```bash
 lk-sim runs --root "$TARGET_ROOT"
-lk-sim report 001-smoke-hello --root "$TARGET_ROOT"
-lk-sim log 001-smoke-hello --kind "transcript.*" --root "$TARGET_ROOT"
+lk-sim report 001-smoke-hello-20260716-144623-a1b2 --root "$TARGET_ROOT"
+lk-sim log 001-smoke-hello-20260716-144623-a1b2 --kind "transcript.*" --root "$TARGET_ROOT"
 # --kind accepts one kind or one prefix (e.g. sim.script*); not a comma list
 lk-sim web --root "$TARGET_ROOT"    # http://127.0.0.1:8765 — list auto-updates ~3s; Ctrl+C to stop
 # CI golden gate (exit 1 on regression):
@@ -539,8 +540,8 @@ lk-sim web --root "$TARGET_ROOT"    # http://127.0.0.1:8765 — list auto-update
 Promote a failure to a draft regression case:
 
 ```bash
-lk-sim scenario-from-run 001-smoke-hello --root "$TARGET_ROOT"           # dry-run
-lk-sim scenario-from-run 001-smoke-hello --root "$TARGET_ROOT" --write  # write JSONL
+lk-sim scenario-from-run 001-smoke-hello-20260716-144623-a1b2 --root "$TARGET_ROOT"           # dry-run
+lk-sim scenario-from-run 001-smoke-hello-20260716-144623-a1b2 --root "$TARGET_ROOT" --write  # write JSONL
 # then human/agent reviews Persona + Assert before treating as golden
 ```
 

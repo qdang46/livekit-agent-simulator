@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,12 @@ def next_run_seq(reports_dir: Path | None) -> int:
     return best + 1
 
 
+def _run_id_stamp() -> str:
+    """UTC timestamp + short random suffix so run_id stays unique vs SQLite history."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{stamp}-{secrets.token_hex(2)}"
+
+
 def new_run_id(
     scenario_id: str,
     *,
@@ -69,20 +76,24 @@ def new_run_id(
 ) -> str:
     """Human-readable run id.
 
-    Default: ``{NNN}-{scenario}``
-    With ``name``: ``{NNN}-{name}`` (scenario id stays in meta.json only).
+    Default: ``{NNN}-{scenario}-{YYYYMMDD}-{HHMMSS}-{xxxx}``
+    With ``name``: ``{NNN}-{name}-{YYYYMMDD}-{HHMMSS}-{xxxx}``
+    (scenario id stays in meta.json only).
 
     ``NNN`` is an auto-incrementing prefix from ``reports_dir``.
     Pass ``seq`` to pin a number (tests / retry loops).
+    The timestamp+hex suffix avoids ``runs.run_id`` UNIQUE collisions when a
+    report folder was deleted but the SQLite row remains.
     """
     scenario_slug = _run_id_slug(scenario_id, fallback="scenario")
     n = seq if seq is not None else next_run_seq(reports_dir)
     prefix = f"{n:03d}"
+    stamp = _run_id_stamp()
     if name:
         name_slug = _run_id_slug(name, max_len=64)
         if name_slug:
-            return f"{prefix}-{name_slug}"
-    return f"{prefix}-{scenario_slug}"
+            return f"{prefix}-{name_slug}-{stamp}"
+    return f"{prefix}-{scenario_slug}-{stamp}"
 
 
 def allocate_run_dir(

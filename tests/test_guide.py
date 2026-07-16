@@ -13,4 +13,4 @@ def test_guide_returns_markdown() -> None:
     assert "run_id" in text
     assert "{NNN}-{slug}" in text or "001-smoke-hello" in text
     assert "--name" in text
-    assert "YYYYMMDD-HHMMSS}-{hex4}" not in text
+    assert "YYYYMMDD" in text and "HHMMSS" in text

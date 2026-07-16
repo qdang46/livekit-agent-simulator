@@ -43,8 +43,8 @@ lk-sim init --root /path/to/target   # safe to re-run; does not overwrite existi
 lk-sim preflight --root /path/to/target
 lk-sim scenario-init smoke-hello --root /path/to/target   # skip if file already exists
 lk-sim validate smoke-hello --root /path/to/target
-lk-sim execute smoke-hello --root /path/to/target         # → reports/001-smoke-hello/
-lk-sim report 001-smoke-hello --root /path/to/target
+lk-sim execute smoke-hello --root /path/to/target         # → reports/001-smoke-hello-YYYYMMDD-HHMMSS-xxxx/
+lk-sim report 001-smoke-hello-… --root /path/to/target
 lk-sim web --root /path/to/target                         # Ctrl+C to stop server
 ```
 
@@ -438,12 +438,13 @@ MCP for coding agents (Claude, Cursor, Windsurf, VS Code, …):
 
 Directory: `.agent-sim/reports/<run-id>/`
 
-`run_id` = `{NNN}-{slug}` where:
+`run_id` = `{NNN}-{slug}-{YYYYMMDD}-{HHMMSS}-{xxxx}` where:
 
 - **`NNN`** — auto sequence (`001`, `002`, …) from existing folders under `reports/` (parallel-safe)
 - **`slug`** — scenario id by default, or ``--name`` / MCP ``run_name`` override
+- **timestamp + hex** — UTC stamp + 4 hex chars so ids stay unique even if a report folder was deleted but SQLite still has the old row
 
-Examples: `001-smoke-hello`, `002-demo`. Suite matrices still write `suite-YYYYMMDD-HHMMSS.{json,md}` beside run folders (not a run_id).
+Examples: `001-smoke-hello-20260716-144623-a1b2`, `002-demo-20260716-144630-c3d4`. Suite matrices still write `suite-YYYYMMDD-HHMMSS.{json,md}` beside run folders (not a run_id).
 
 | File | Contents |
 |------|----------|
@@ -459,13 +460,13 @@ L3 standard LiveKit Agents session events. L3 records `tool.*` and `session.*`
 automatically for SDK agents; custom `tool_event_patterns` remain a fallback.
 
 ```bash
-lk-sim report 001-smoke-hello --root /path/to/target   # full summary (includes caller.behavior_summary)
-lk-sim log 001-smoke-hello --kind "transcript.*" --root /path/to/target
-lk-sim log 001-smoke-hello --kind "sim.script*" --root /path/to/target
+lk-sim report 001-smoke-hello-20260716-144623-a1b2 --root /path/to/target   # full summary (includes caller.behavior_summary)
+lk-sim log 001-smoke-hello-20260716-144623-a1b2 --kind "transcript.*" --root /path/to/target
+lk-sim log 001-smoke-hello-20260716-144623-a1b2 --kind "sim.script*" --root /path/to/target
 # --kind: one kind or one prefix (trailing *); not a comma-separated list
 lk-sim runs --root /path/to/target
 lk-sim web --root /path/to/target              # home list of all scenarios/runs (auto-updates ~3s)
-lk-sim web 001-smoke-hello --root /path/to/target     # deep-link a specific run
+lk-sim web 001-smoke-hello-20260716-144623-a1b2 --root /path/to/target     # deep-link a specific run
 # Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for
 # barge / backchannel / false_interrupt / dtmf / silence / recovery / tools
 # Middle column shows agent actions (script cues + tool cards with args/output when L3 enabled)
