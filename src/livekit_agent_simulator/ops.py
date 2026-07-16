@@ -174,18 +174,17 @@ def list_scenarios(project_root: Path | str) -> list[dict[str, Any]]:
 
 def validate_scenario(project_root: Path | str, scenario_id: str) -> dict[str, Any]:
     cfg = load_config(project_root)
-    path = cfg.scenarios_dir / f"{scenario_id}.jsonl"
-    if not path.exists():
+    try:
+        # Keep validation consistent with execution: resolve by metadata.id, not filename.
+        # `find_scenario` falls back to scanning all JSONL files when `<id>.jsonl` doesn't exist.
+        s = find_scenario(cfg.scenarios_dir, scenario_id)
+    except ScenarioError as e:
         candidates = list(cfg.scenarios_dir.glob("*.jsonl"))
         return {
             "valid": False,
-            "error": f"{path} not found",
+            "error": str(e),
             "available": [c.name for c in candidates],
         }
-    try:
-        s = parse_scenario(path)
-    except ScenarioError as e:
-        return {"valid": False, "error": str(e)}
     warnings: list[str] = []
     if not s.pass_criteria:
         warnings.append("No PassCriteria — judge will be skipped for this scenario.")
