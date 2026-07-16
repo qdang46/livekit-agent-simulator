@@ -1,0 +1,9 @@
+// Portable dialogue-mode example: Persona situation + outcome owns speech (no Script).
+// If the agent-under-test waits for the caller to speak first, set first_speaker=user
+// (otherwise both sides wait → dead silence).
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"dialogue-signup-basic","locale":"en-US","tags":["example","dialogue","human-like"]}}
+{"kind":"Persona","spec":{"name":"Alex Rivera","language":"en-US","situation":"Small-business owner calling signup support. Interested in the basic plan but unsure about the monthly fee.","outcome":"Hear a clear monthly fee or an honest next step, give name when asked, then end politely.","brief":"Polite, slightly hesitant caller.","goals":["Speak first: greet and say you want the basic plan","Ask what the monthly fee is","Give your name when asked","End politely once goals are met"],"style":"polite, slightly hesitant, 1-2 sentence turns","traits":["quiet","polite"],"constraints":["Do not invent a credit card number or OTP","Do not restart from a full phone menu"]}}
+{"kind":"Context","spec":{"notes":"Dialogue mode — Gemini owns speech. No Script overlay. Use first_speaker=user when the agent waits for the caller."}}
+{"kind":"Execute","spec":{"max_turns":12,"timeout_s":200,"first_speaker":"user"}}
+{"kind":"Assert","spec":{"tools":[],"outcomes":[{"id":"caller_asked_fee","type":"transcript_contains","role":"user","phrases":["fee","month","price","cost","how much"]},{"id":"outcome_signup_path","type":"llm_bool","prompt":"Did the caller pursue signup and try to learn the monthly fee?"}]}}
+{"kind":"PassCriteria","spec":{"mode":"majority","criteria":["Caller pursued signup naturally","Caller asked about fee or pricing","Call reached a polite ending or clear next step"]}}

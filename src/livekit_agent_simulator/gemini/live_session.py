@@ -203,7 +203,7 @@ class GeminiCallerBridge:
 
         Outbound hairpin often never places a SIP track in sim-room (same DID as
         agent inbound). Gemini still needs agent PCM to continue the conversation —
-        feed it from agent-room where the worker publishes WebRTC audio.
+        feed it from agent-room where the LiveKit agent publishes WebRTC audio.
         """
 
         def _maybe_queue(p: rtc.RemoteParticipant, track: rtc.Track) -> None:
@@ -311,7 +311,11 @@ class GeminiCallerBridge:
 
 
     async def _emit_bootstrap_cues(self, session: Any) -> None:
-        """Send policy bootstrap texts (first speaker). Reground cues are on-demand."""
+        """Emit connect-time midcall texts (``kind=bootstrap`` only).
+
+        Default policy: speak-first kick for dialogue ``user`` without Script;
+        never bootstrap when Script owns the open line (avoids double-open).
+        """
         for cue in self._midcall_cues:
             kind = getattr(cue, "kind", "") or ""
             if kind != "bootstrap":
