@@ -16,7 +16,7 @@ folder; the Python package never imports consumer application code.
 | **Dedupe** | Multiple sources (sim.gemini, lk.transcription, data topics) merged with source priority so turn count stays accurate. |
 | **L3 session** | `lk.agent.session` passive events + final `getChatHistory` / `getSessionUsage` snapshot for LiveKit Agents SDK workers. |
 | **Tools** | Automatic SDK `tool.start` / `tool.end` / `tool.error`; optional `observe.tool_event_patterns` fallback for custom agents. |
-| **Report player** | `lk-sim web` — stereo audio + transcript sync; tool bands/cards + session footer when L3 events exist. |
+| **Report player** | `lks web` — stereo audio + transcript sync; tool bands/cards + session footer when L3 events exist. |
 
 ## Per-target setup (in `<repo>/.agent-sim/`)
 
@@ -80,9 +80,9 @@ observe:
 ## Verification checklist
 
 ```bash
-lk-sim preflight --root /path/to/target
-lk-sim validate smoke-hello --root /path/to/target
-lk-sim execute smoke-hello --root /path/to/target
+lks preflight --root /path/to/target
+lks validate smoke-hello --root /path/to/target
+lks execute smoke-hello --root /path/to/target
 ```
 
 Expect `status: done`, optional judge verdict, sensible `turn_count`, exit code 0.

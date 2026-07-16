@@ -41,7 +41,7 @@ jobs:
           uv python install 3.12
           uv sync --frozen --extra dev
           uv run pytest -q
-          uv run lk-sim --help
+          uv run lks --help
 
       - name: Build wheel
         run: |

@@ -2,7 +2,7 @@
 // apiVersion: must be "agent-sim/v1"
 // metadata.id: same as this filename (without .jsonl)
 // metadata.locale: BCP-47 language for the sim persona (e.g. en-US, vi-VN, ja-JP)
-// metadata.tags: free labels; use with: lk-sim execute-all --tag smoke
+// metadata.tags: free labels; use with: lks execute-all --tag smoke
 {"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"{{SCENARIO_ID}}","locale":"en-US","tags":["draft"]}}
 // === Persona (required) — Hamming-style character ===
 // name, brief (required), goals[], style, traits[]

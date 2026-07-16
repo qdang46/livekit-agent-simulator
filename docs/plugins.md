@@ -97,7 +97,7 @@ asyncio.run(main())
 ## 4. Discover plugins
 
 ```bash
-lk-sim plugins --root /path/to/target
+lks plugins --root /path/to/target
 ```
 
 MCP: `list_plugins(project_root)`.

@@ -51,7 +51,7 @@ def init_project(project_root: Path | str) -> dict[str, Any]:
             "or add project-specific noise.\n\n"
             "Scenario: `\"delivery\":\"room_pcm\",\"asset\":\"my_noise.wav\"` "
             "or `\"asset\":\"builtin:noise.loud\"`.\n\n"
-            "List: `lk-sim cues --root .`\n",
+            "List: `lks cues --root .`\n",
             encoding="utf-8",
         )
         created.append(str(cues_readme))
@@ -88,7 +88,7 @@ def init_project(project_root: Path | str) -> dict[str, Any]:
         "next_steps": [
             f"Fill in LiveKit + Google credentials in {config_dst}",
             "Make sure your worker is running with the configured agent_name",
-            "Run the smoke scenario: lk-sim execute smoke-hello",
+            "Run the smoke scenario: lks execute smoke-hello",
         ],
     }
 
@@ -161,8 +161,8 @@ def init_scenario(
         "overwritten": force,
         "next_steps": [
             f"Edit {dest} — // lines are guides; remove unused kind JSON lines",
-            f"Validate: lk-sim validate {scenario_id} --root {root}",
-            f"Run: lk-sim execute {scenario_id} --root {root}",
+            f"Validate: lks validate {scenario_id} --root {root}",
+            f"Run: lks execute {scenario_id} --root {root}",
         ],
     }
 

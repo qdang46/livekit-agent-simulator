@@ -46,7 +46,7 @@ observe:
   turn_taking_warn_ms: 2500
 
 # room_pcm library: package built-ins + per-target overrides (multi-repo).
-# List: lk-sim cues --root .
+# List: lks cues --root .
 # Scenario asset: "builtin:noise.loud" | "my.wav" in .agent-sim/cues/ | alias name
 # cues:
 #   dirs:

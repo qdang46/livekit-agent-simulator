@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install lk-sim from GitHub Releases (CI portable pack).
+# Install lks (alias: lk-sim) from GitHub Releases (CI portable pack).
 # No uv/pip/build on the user machine - download zip + PATH.
 #
 #   curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" | bash
@@ -7,7 +7,7 @@
 set -euo pipefail
 umask 022
 
-BINARY_NAME="lk-sim"
+BINARY_NAME="lks"
 MCP_SERVER_NAME="livekit-agent-simulator"
 PKG_NAME="livekit-agent-simulator"
 OWNER="quangdang46"
@@ -148,11 +148,14 @@ PY
 }
 
 resolve_lk_sim() {
-  if command -v "$BINARY_NAME" >/dev/null 2>&1; then
-    command -v "$BINARY_NAME"
-    return 0
-  fi
-  for c in "$DEST/$BINARY_NAME" "$CURRENT_DIR/$BINARY_NAME"; do
+  # Prefer primary `lks`, then alias `lk-sim` (legacy installs / PATH).
+  for name in "$BINARY_NAME" "lk-sim"; do
+    if command -v "$name" >/dev/null 2>&1; then
+      command -v "$name"
+      return 0
+    fi
+  done
+  for c in "$DEST/$BINARY_NAME" "$DEST/lk-sim" "$CURRENT_DIR/$BINARY_NAME" "$CURRENT_DIR/lk-sim"; do
     [ -x "$c" ] && { echo "$c"; return 0; }
   done
   return 1
@@ -161,7 +164,7 @@ resolve_lk_sim() {
 configure_all_mcp_providers() {
   local lk_bin
   lk_bin=$(resolve_lk_sim) || {
-    log_warn "lk-sim not found - skip MCP config"
+    log_warn "lks not found - skip MCP config"
     return 0
   }
   log_info "MCP providers -> ${lk_bin} mcp"
@@ -186,7 +189,7 @@ EOF
 uninstall_all() {
   log_info "Uninstalling ${PKG_NAME}..."
   rm -rf "$INSTALL_ROOT" 2>/dev/null || true
-  rm -f "$DEST/$BINARY_NAME" "$DEST/lk-sim-mcp" 2>/dev/null || true
+  rm -f "$DEST/lks" "$DEST/lks-mcp" "$DEST/lk-sim" "$DEST/lk-sim-mcp" 2>/dev/null || true
   _remove_mcp_from_file "$HOME/.claude.json" "$MCP_SERVER_NAME"
   _remove_mcp_from_file "$HOME/.cursor/mcp.json" "$MCP_SERVER_NAME"
   _remove_mcp_from_file "$HOME/.vscode/mcp.json" "$MCP_SERVER_NAME" "servers"
@@ -285,12 +288,16 @@ install_portable() {
     [ -f "$dir/python/Lib/encodings/__init__.py" ] || [ -f "$dir/python/lib/python3.12/encodings/__init__.py" ]
   }
   repair_nested_portable_layout "$CURRENT_DIR" || die "portable pack invalid: python missing under $CURRENT_DIR/python"
-  chmod +x "$CURRENT_DIR/lk-sim" "$CURRENT_DIR/lk-sim-mcp" 2>/dev/null || true
+  chmod +x "$CURRENT_DIR/lks" "$CURRENT_DIR/lks-mcp" "$CURRENT_DIR/lk-sim" "$CURRENT_DIR/lk-sim-mcp" 2>/dev/null || true
 
   mkdir -p "$DEST"
+  # Primary
+  ln -sfn "$CURRENT_DIR/lks" "$DEST/lks"
+  ln -sfn "$CURRENT_DIR/lks-mcp" "$DEST/lks-mcp"
+  # Backward-compatible alias
   ln -sfn "$CURRENT_DIR/lk-sim" "$DEST/lk-sim"
   ln -sfn "$CURRENT_DIR/lk-sim-mcp" "$DEST/lk-sim-mcp"
-  log_info "Installed -> $CURRENT_DIR (shims in $DEST)"
+  log_info "Installed -> $CURRENT_DIR (shims in $DEST: lks + lk-sim)"
 
   rm -rf "$work"
 }

@@ -1,6 +1,6 @@
 # livekit-agent-simulator — setup & ops guide
 
-For coding agents and humans. **CLI (`lk-sim`) and MCP share the same ops.**
+For coding agents and humans. **CLI (`lks`, alias: `lk-sim`) and MCP share the same ops.**
 
 Package dials **any** LiveKit voice agent with a Gemini Live simulated caller and writes
 a forensic report. The agent under test is a **black box** — never import or edit target
@@ -37,15 +37,15 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 # Install once (optional) — full steps: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/guide/installation.md
 # curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 # From anywhere; point --root at the LiveKit agent repo (not the dashboard)
-lk-sim guide
-lk-sim init --root /path/to/target   # safe to re-run; does not overwrite existing config/scenarios
+lks guide
+lks init --root /path/to/target   # safe to re-run; does not overwrite existing config/scenarios
 # edit /path/to/target/.agent-sim/config.yaml
-lk-sim preflight --root /path/to/target
-lk-sim scenario-init smoke-hello --root /path/to/target   # skip if file already exists
-lk-sim validate smoke-hello --root /path/to/target
-lk-sim execute smoke-hello --root /path/to/target         # → reports/001-smoke-hello-YYYYMMDD-HHMMSS-xxxx/
-lk-sim report 001-smoke-hello-… --root /path/to/target
-lk-sim web --root /path/to/target                         # Ctrl+C to stop server
+lks preflight --root /path/to/target
+lks scenario-init smoke-hello --root /path/to/target   # skip if file already exists
+lks validate smoke-hello --root /path/to/target
+lks execute smoke-hello --root /path/to/target         # → reports/001-smoke-hello-YYYYMMDD-HHMMSS-xxxx/
+lks report 001-smoke-hello-… --root /path/to/target
+lks web --root /path/to/target                         # Ctrl+C to stop server
 ```
 
 MCP: same names as the right-hand column in §3 (`guide`, `init_project`, `preflight`, …).
@@ -93,7 +93,7 @@ There is no separate “enable voice” toggle — only **which voice/language**
 | **Sim speech** | Gemini Live speaks as the caller | `simulator.voice.*`, `simulator.language` |
 | **Persona locale** | Prompt + scenario language hint | `Scenario.metadata.locale`, optional `Persona.spec.language` |
 | **Vocal barge / backchannel** | Real speech WAV into sim mic (STT hears it) | Script `delivery: room_pcm` + `asset: voice.*` or `.agent-sim/cues/*.wav` |
-| **Call recording** | Stereo `conversation.wav` for replay (`lk-sim web`) | `observe.record_audio: true` |
+| **Call recording** | Stereo `conversation.wav` for replay (`lks web`) | `observe.record_audio: true` |
 | **Soft judge** | Post-run rubric (not a hard CI gate by default) | `judge:` in config **and** scenario `PassCriteria` |
 
 Example — Vietnamese caller + local recording (template defaults are `en-US` / `UTC`):
@@ -143,7 +143,7 @@ cues:
     office: office_loop.wav
 ```
 
-Scenario: `"asset":"office","delivery":"room_pcm"`. List built-ins + overrides: `lk-sim cues --root .`
+Scenario: `"asset":"office","delivery":"room_pcm"`. List built-ins + overrides: `lks cues --root .`
 
 ---
 
@@ -152,7 +152,7 @@ Scenario: `"asset":"office","delivery":"room_pcm"`. List built-ins + overrides: 
 ### Create
 
 ```bash
-lk-sim scenario-init my-case --root /path/to/target
+lks scenario-init my-case --root /path/to/target
 # → .agent-sim/scenarios/my-case.jsonl
 ```
 
@@ -241,8 +241,8 @@ Judge verdicts: `pass` | `fail` | `maybe` (soft unless `--strict-judge`). Criter
 | Aliases / dirs | `config.yaml` → `cues:` | short name from `cues.aliases` |
 
 ```bash
-lk-sim cues --root /path/to/target
-lk-sim cues --root /path/to/target --resolve builtin:voice.barge_short
+lks cues --root /path/to/target
+lks cues --root /path/to/target --resolve builtin:voice.barge_short
 # MCP: list_cues(project_root=…)
 ```
 
@@ -275,7 +275,7 @@ cp templates/plugins/example_verify.py /path/to/target/.agent-sim/plugins/my_che
 Discover loaded plugins:
 
 ```bash
-lk-sim plugins --root /path/to/target
+lks plugins --root /path/to/target
 # MCP: list_plugins(project_root=…)
 ```
 
@@ -284,13 +284,13 @@ Ship plugins from an installable package via `[project.entry-points."lk_sim.plug
 ### Run
 
 ```bash
-lk-sim validate my-case --root /path/to/target
-lk-sim execute my-case --root /path/to/target                    # → reports/001-my-case/
-lk-sim execute my-case --name demo --root /path/to/target        # → reports/002-demo/
-lk-sim execute my-case --repeat 5 --pass-at-k 3   # pass@k flake control
-lk-sim execute-all --tag smoke --root /path/to/target
-lk-sim execute-all --tag smoke --repeat 3 --pass-at-k 2   # flake in batch
-lk-sim execute-all --tag smoke --parallel 3 --root /path/to/target  # up to 3 scenarios at once
+lks validate my-case --root /path/to/target
+lks execute my-case --root /path/to/target                    # → reports/001-my-case/
+lks execute my-case --name demo --root /path/to/target        # → reports/002-demo/
+lks execute my-case --repeat 5 --pass-at-k 3   # pass@k flake control
+lks execute-all --tag smoke --root /path/to/target
+lks execute-all --tag smoke --repeat 3 --pass-at-k 2   # flake in batch
+lks execute-all --tag smoke --parallel 3 --root /path/to/target  # up to 3 scenarios at once
 # In-memory (CI / agents): MCP execute_scenario_dict or CLI execute-dict -f file.json [--name]
 ```
 
@@ -311,18 +311,18 @@ Useful for barge / latency / noise scenarios where Gemini behavior varies.
 Each iteration still allocates its own ``{NNN}-…`` folder.
 
 ```bash
-lk-sim execute my-barge-case --repeat 7 --pass-at-k 5 --root /path/to/target
+lks execute my-barge-case --repeat 7 --pass-at-k 5 --root /path/to/target
 ```
 
 ### Promote a failed run to a permanent test (fail → golden)
 
 ```bash
-lk-sim scenario-from-run <run-id> --root /path/to/target
+lks scenario-from-run <run-id> --root /path/to/target
 # dry-run: prints draft JSONL. Review Persona + Assert.
-lk-sim scenario-from-run <run-id> --root /path/to/target --write
+lks scenario-from-run <run-id> --root /path/to/target --write
 # writes .agent-sim/scenarios/from-<source>-<id>.jsonl
 # Then edit, validate, add to execute-all
-lk-sim validate from-my-source-xxxx --root /path/to/target
+lks validate from-my-source-xxxx --root /path/to/target
 ```
 
 The draft recovers Persona, Dispatch, Execute spec, and run stats from the source report.
@@ -412,7 +412,7 @@ There is **no** separate `run` command — always validate-then-run via `execute
 Golden baseline gate (CI): treat run A as baseline, fail exit `1` if candidate regresses:
 
 ```bash
-lk-sim compare <baseline-run> <candidate-run> --baseline --root /path/to/target
+lks compare <baseline-run> <candidate-run> --baseline --root /path/to/target
 # thresholds: --max-ttfw-regression-ms · --max-turn-p95-regression-ms ·
 #             --max-duration-regression-ms · --max-barge-recovery-drop
 ```
@@ -425,7 +425,7 @@ MCP for coding agents (Claude, Cursor, Windsurf, VS Code, …):
 {
   "mcpServers": {
     "livekit-agent-simulator": {
-      "command": "lk-sim",
+      "command": "lks",
       "args": ["mcp"]
     }
   }
@@ -460,13 +460,13 @@ L3 standard LiveKit Agents session events. L3 records `tool.*` and `session.*`
 automatically for SDK agents; custom `tool_event_patterns` remain a fallback.
 
 ```bash
-lk-sim report 001-smoke-hello-20260716-144623-a1b2 --root /path/to/target   # full summary (includes caller.behavior_summary)
-lk-sim log 001-smoke-hello-20260716-144623-a1b2 --kind "transcript.*" --root /path/to/target
-lk-sim log 001-smoke-hello-20260716-144623-a1b2 --kind "sim.script*" --root /path/to/target
+lks report 001-smoke-hello-20260716-144623-a1b2 --root /path/to/target   # full summary (includes caller.behavior_summary)
+lks log 001-smoke-hello-20260716-144623-a1b2 --kind "transcript.*" --root /path/to/target
+lks log 001-smoke-hello-20260716-144623-a1b2 --kind "sim.script*" --root /path/to/target
 # --kind: one kind or one prefix (trailing *); not a comma-separated list
-lk-sim runs --root /path/to/target
-lk-sim web --root /path/to/target              # home list of all scenarios/runs (auto-updates ~3s)
-lk-sim web 001-smoke-hello-20260716-144623-a1b2 --root /path/to/target     # deep-link a specific run
+lks runs --root /path/to/target
+lks web --root /path/to/target              # home list of all scenarios/runs (auto-updates ~3s)
+lks web 001-smoke-hello-20260716-144623-a1b2 --root /path/to/target     # deep-link a specific run
 # Opens http://127.0.0.1:8765 — stereo L=sim R=agent; timeline bands + chips for
 # barge / backchannel / false_interrupt / dtmf / silence / recovery / tools
 # Middle column shows agent actions (script cues + tool cards with args/output when L3 enabled)

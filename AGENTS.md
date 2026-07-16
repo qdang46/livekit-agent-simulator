@@ -1,6 +1,6 @@
 # AGENTS.md — livekit-agent-simulator
 
-Standalone Python package: MCP + `lk-sim` CLI. Dials **any** LiveKit voice agent using
+Standalone Python package: MCP + `lks` CLI (alias: `lk-sim`). Dials **any** LiveKit voice agent using
 `.agent-sim/` in a **target repo** (config, scenarios, reports). The agent under test is a
 black box — we never import or edit target application code unless the user asks.
 
@@ -112,7 +112,7 @@ On Windows, if `uv sync` fails (MCP exe locked):
 | Bug / SDK / protocol | Exa + LiveKit MCP + `.venv` → fix → pytest |
 | New scenario kind / MCP tool | Research first; plan if large; tests required |
 | Target scenario/config only | Edit `<target>/.agent-sim/` — no package release |
-| Smoke against running agent | `lk-sim preflight` + `lk-sim execute <id> --root <path>` (same ops as MCP) |
+| Smoke against running agent | `lks preflight` + `lks execute <id> --root <path>` (same ops as MCP) |
 
 ---
 
@@ -129,7 +129,7 @@ On Windows, if `uv sync` fails (MCP exe locked):
 | `logging/` | Event envelope, SQLite, reports |
 | `web/` (repo root) | Web UI — Vite/TS; `pnpm build` → `web/dist/`; CI force-includes into wheel as `web_static` |
 | `src/.../web/` | Report player API (`cues`, markers, HTTP server) |
-| `mcp_server.py` / `cli.py` | MCP tools + `lk-sim` |
+| `mcp_server.py` / `cli.py` | MCP tools + `lks` (alias `lk-sim`) |
 | `templates/` | Init scaffolds |
 | `tests/` | pytest |
 | `docs/portability.md` | Optional consumer wiring (not default agent context) |
@@ -169,8 +169,8 @@ Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] 
 | Item | Value |
 |---|---|
 | Package | `livekit-agent-simulator` |
-| CLI | `lk-sim` |
-| MCP entry | `lk-sim mcp` (or console script `lk-sim-mcp`) |
+| CLI | `lks` (alias: `lk-sim`) |
+| MCP entry | `lks mcp` (alias `lk-sim mcp`; console scripts `lks-mcp` / `lk-sim-mcp`) |
 | Dot folder (target) | `.agent-sim/` |
 | Sim participant | `lk-sim-caller` |
 | Room prefix | `lk-sim-<run-id>` |

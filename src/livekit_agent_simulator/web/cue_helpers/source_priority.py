@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Built-in lk-sim / LiveKit sources only. Target data topics are ranked generically
+# Built-in lks / LiveKit sources only. Target data topics are ranked generically
 # below (any non-builtin source beats raw lk.transcription for user).
 _USER_SOURCE_RANK = {
     "sim.gemini": 0,
