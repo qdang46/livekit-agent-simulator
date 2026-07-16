@@ -400,16 +400,16 @@ class GeminiCallerBridge:
     def _allow_persona_room_audio(self) -> bool:
         """Whether Gemini Live PCM may enter the room as caller audio.
 
-        While Script steps remain, freestyle is hard-muted. Source of truth is
-        Script inject (gemini_text / room_pcm) and Script hang-up farewell.
+        Script still owns barge/hang-up timing, but freestyle answers between
+        cues are allowed (main-compatible). Farewell / END_CALL freestyle is
+        muted separately via ``_mute_hang_up_audio`` + deferred end_call.
+        Script inject and hang-up farewell always pass.
         """
         if self._script_hangup_farewell:
             return True
         # gemini_text Script inject drives TTS through the same PCM path.
         if self._inject_turn_active:
             return True
-        if self._script_steps_pending():
-            return False
         if self._mute_persona_audio or self._persona_output_suppressed():
             return False
         return True
@@ -695,14 +695,12 @@ class GeminiCallerBridge:
                         # inject_cue owns clearing _inject_turn_active after drain.
                         if not inject_turn:
                             self._inject_playback_gain = 1.0
-                        # Drop freestyle while Script owns the call (or TTL suppress).
+                        # TTL suppress / scripted silence only — do not drop freestyle
+                        # answers while Script steps remain (caller may reply to questions).
                         if (
                             not inject_turn
                             and not self._script_hangup_farewell
-                            and (
-                                self._script_steps_pending()
-                                or self._persona_output_suppressed()
-                            )
+                            and self._persona_output_suppressed()
                         ):
                             self._sim_out_text = ""
                             self._mute_persona_audio = False

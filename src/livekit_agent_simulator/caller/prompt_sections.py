@@ -59,8 +59,8 @@ class GoalsSection:
                     "",
                     "Rules for goals when a timed Script is active:",
                     "1. Goals are context for Script cues — do NOT freestyle to finish signup yourself.",
-                    "2. Stay silent between Script injects; speak only the short line when the harness injects it.",
-                    "3. Do NOT say goodbye or [END_CALL]; Script hang-up ends the call.",
+                    "2. Speak Script cue lines when injected; between cues you may answer the assistant briefly (1 short sentence).",
+                    "3. Do NOT freestyle barge-ins, long monologues, or goodbye / [END_CALL]; Script hang-up ends the call.",
                 ]
             )
         else:
@@ -175,9 +175,9 @@ class ScriptTimingSection:
             "## INTERACTION TIMING (simulator-owned)",
             f"This call has {n} timed Script step(s). Timing and hang-up are owned by the simulator.",
             "Timed caller cues (barge, silence, hang-up, DTMF, PCM) are injected automatically.",
-            "Do NOT backchannel, interrupt, answer questions, invent small-talk, or continue signup on your own.",
-            "Between Script cues stay silent — even if the assistant asks for name, email, or card details.",
-            "EXCEPTION: when you receive a SIMULATOR CUE, speak that line aloud once immediately, then go silent again.",
+            "Do NOT freestyle barge-ins, invent long small-talk, or continue a full signup flow on your own.",
+            "Between Script cues: if the assistant asks a direct question, answer briefly (okay / name / got it).",
+            "When you receive a SIMULATOR CUE, speak that line aloud once immediately.",
             "Do NOT say goodbye, bye, thanks-bye, hang up, or [END_CALL] while Script steps remain.",
             "Only the final Script hang-up step ends the call. Freestyle farewell will FAIL the test.",
         ]
@@ -216,7 +216,8 @@ class GuardrailsSection:
             ),
             "If you say goodbye or [END_CALL] early, the automated test will FAIL.",
             (
-                "If the assistant asks for details between Script cues, stay silent."
+                "If the assistant asks a direct question between Script cues, answer briefly; "
+                "do not start a long freestyle dialog or goodbye."
                 if has_script
                 else "If the assistant says something irrelevant, steer back to your current goal."
             ),
@@ -224,8 +225,8 @@ class GuardrailsSection:
         if has_script:
             lines.extend(
                 [
-                    "A timed Script is active: do NOT freestyle answers, small-talk, or a goodbye.",
-                    "Stay silent between Script cues; wait for the simulator hang-up cue to end the call.",
+                    "A timed Script is active: do NOT freestyle a goodbye or barge outside Script cues.",
+                    "Brief answers to the assistant are OK; wait for the simulator hang-up cue to end the call.",
                 ]
             )
         else:

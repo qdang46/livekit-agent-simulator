@@ -1,8 +1,6 @@
-"""Freestyle room audio is muted while Script steps remain."""
+"""Persona room audio gates while Script is active (answers OK; suppress still mutes)."""
 
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 from livekit_agent_simulator.gemini.live_session import GeminiCallerBridge
 
@@ -25,9 +23,10 @@ def test_allow_freestyle_when_no_script():
     assert b._allow_persona_room_audio() is True
 
 
-def test_mute_freestyle_when_script_pending():
+def test_allow_freestyle_answers_when_script_pending():
+    """Script owns barge/hang-up; brief freestyle replies between cues must reach the mic."""
     b = _bridge(_script_pending=lambda: True)
-    assert b._allow_persona_room_audio() is False
+    assert b._allow_persona_room_audio() is True
 
 
 def test_allow_script_gemini_text_inject_while_pending():
@@ -44,4 +43,14 @@ def test_ttl_suppress_still_mutes_without_script():
     import time
 
     b = _bridge(_suppress_output_until_mono=time.monotonic() + 5)
+    assert b._allow_persona_room_audio() is False
+
+
+def test_ttl_suppress_still_mutes_with_script_pending():
+    import time
+
+    b = _bridge(
+        _script_pending=lambda: True,
+        _suppress_output_until_mono=time.monotonic() + 5,
+    )
     assert b._allow_persona_room_audio() is False
