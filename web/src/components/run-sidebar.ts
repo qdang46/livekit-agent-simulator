@@ -61,11 +61,19 @@ export type RunSidebarOpts = {
   onHome: () => void;
 };
 
+export type RunSidebarHandle = {
+  update(next: { runs?: RunSummary[]; activeRunId?: string | null }): void;
+};
+
 export function renderRunSidebar(
   mount: HTMLElement,
   opts: RunSidebarOpts,
-): void {
-  const sorted = sortRunsNewest(opts.runs);
+): RunSidebarHandle {
+  let sorted = sortRunsNewest(opts.runs);
+  let activeRunId = opts.activeRunId;
+  const onSelect = opts.onSelect;
+  const onHome = opts.onHome;
+
   mount.innerHTML = `
     <aside class="run-sidebar" aria-label="Report runs">
       <div class="run-sidebar-head">
@@ -92,7 +100,9 @@ export function renderRunSidebar(
   const nav = mount.querySelector<HTMLElement>("#sb-nav");
   const modeEl = mount.querySelector<HTMLElement>("#sb-mode");
   const homeBtn = mount.querySelector<HTMLButtonElement>("#sb-home");
-  if (!filter || !nav || !modeEl || !homeBtn) return;
+  if (!filter || !nav || !modeEl || !homeBtn) {
+    return { update() {} };
+  }
 
   let mode: ListViewMode = loadSidebarViewMode("scenario");
   filter.value = loadSidebarFilter();
@@ -100,7 +110,7 @@ export function renderRunSidebar(
   /** null = never customized → use default open heuristics */
   let openScenarios: Set<string> | null = loadSidebarOpenScenarios();
 
-  homeBtn.addEventListener("click", () => opts.onHome());
+  homeBtn.addEventListener("click", () => onHome());
 
   for (const tab of Array.from(
     modeEl.querySelectorAll<HTMLButtonElement>(".run-sidebar-tab"),
@@ -130,7 +140,7 @@ export function renderRunSidebar(
     if (openScenarios) return openScenarios;
     const next = new Set<string>();
     for (const g of groups) {
-      const hasActive = g.runs.some((r) => r.run_id === opts.activeRunId);
+      const hasActive = g.runs.some((r) => r.run_id === activeRunId);
       if (hasActive || g.runs.length <= 8) next.add(g.scenarioId);
     }
     openScenarios = next;
@@ -162,7 +172,7 @@ export function renderRunSidebar(
     const open = ensureOpenSet(groups);
     // Keep the active run's scenario expanded even if user collapsed others.
     for (const g of groups) {
-      if (g.runs.some((r) => r.run_id === opts.activeRunId)) {
+      if (g.runs.some((r) => r.run_id === activeRunId)) {
         open.add(g.scenarioId);
       }
     }
@@ -194,7 +204,7 @@ export function renderRunSidebar(
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "run-sidebar-item";
-    if (r.run_id === opts.activeRunId) btn.classList.add("is-active");
+    if (r.run_id === activeRunId) btn.classList.add("is-active");
     const tone = statusTone(r.status);
     const when = runInstant(r);
     const title = showScenario
@@ -212,13 +222,20 @@ export function renderRunSidebar(
     `;
     btn.title = r.run_id;
     btn.addEventListener("click", () => {
-      if (r.run_id === opts.activeRunId) return;
-      opts.onSelect(r.run_id);
+      if (r.run_id === activeRunId) return;
+      onSelect(r.run_id);
     });
     return btn;
   }
 
   paint();
+  return {
+    update(next) {
+      if (next.runs) sorted = sortRunsNewest(next.runs);
+      if (next.activeRunId !== undefined) activeRunId = next.activeRunId;
+      paint();
+    },
+  };
 }
 
 function escapeHtml(s: string): string {

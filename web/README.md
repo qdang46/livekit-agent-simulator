@@ -20,6 +20,9 @@ pnpm dev
 
 Open http://localhost:5173 — proxies `/api` and `/runs` to port 8765.
 
+The home list and player sidebar **poll** `GET /api/runs` every ~3s (paused when
+the tab is hidden) and re-render only when run ids / status / mtime change.
+
 ## Build (maintainers)
 
 ```bash
