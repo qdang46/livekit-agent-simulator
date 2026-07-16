@@ -26,7 +26,7 @@ from .audio.local_recorder import DEFAULT_FILENAME, LocalConversationRecorder
 from .caller_nudge import nudge_caller_after_agent_greeting
 from .config import SimConfig, config_snapshot
 from .gemini.judge import judge_run
-from .gemini.live_session import GeminiCallerBridge
+from .gemini.live_session import GeminiCallerBridge, resolve_voice_gain
 from .livekit.adapter import AgentJoinTimeout, LiveKitAdapter
 from .livekit.observer import Observer
 from .livekit.sim_leg import SimLegContext, SimLegError, SimLegHandle, sim_leg_factory
@@ -283,6 +283,7 @@ async def run_scenario_instance(
                 first_speaker=run.first_speaker,
                 recorder=recorder,
                 midcall_cues=_midcall_cues,
+                voice_gain=resolve_voice_gain(scenario.persona),
             )
             # Listen/record feed derived from SimLegHandle — no mode ifs.
             if leg_handle.gemini_listen_agent_room:

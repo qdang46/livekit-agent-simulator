@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 GEMINI_IN_RATE = 16_000
 GEMINI_OUT_RATE = 24_000
 
-__all__ = ["END_CALL_TOKEN", "GeminiCallerBridge"]
+__all__ = ["END_CALL_TOKEN", "GeminiCallerBridge", "resolve_voice_gain"]
 
 
 def _is_voice_cue_asset(asset: str | None) -> bool:
@@ -58,6 +58,33 @@ def _is_voice_cue_asset(asset: str | None) -> bool:
     if name.startswith("@"):
         name = name[1:]
     return name.startswith("voice.")
+
+
+def resolve_voice_gain(persona: dict[str, Any] | None) -> float:
+    """Linear gain for sim *speech* (freestyle + inject). Noise beds are unaffected.
+
+    Persona.speech_conditions.voice_gain | voice_volume | volume in [0.0, 1.0].
+    Default 1.0. Quiet-caller STT stress typically uses 0.25–0.45.
+    Gemini Live has no native volume API — this scales PCM after the model.
+    """
+    if not isinstance(persona, dict):
+        return 1.0
+    sc = persona.get("speech_conditions") or persona.get("speechConditions") or {}
+    if not isinstance(sc, dict):
+        return 1.0
+    raw = sc.get("voice_gain", sc.get("voice_volume", sc.get("volume", 1.0)))
+    try:
+        gain = float(raw)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            "Persona.speech_conditions.voice_gain must be a number between 0.0 and 1.0"
+        ) from e
+    if not 0.0 <= gain <= 1.0:
+        raise ValueError(
+            "Persona.speech_conditions.voice_gain must be between 0.0 and 1.0 "
+            f"(got {gain})"
+        )
+    return gain
 
 
 class GeminiCallerBridge:
@@ -73,6 +100,7 @@ class GeminiCallerBridge:
         first_speaker: str,
         recorder: LocalConversationRecorder | None = None,
         midcall_cues: list | None = None,
+        voice_gain: float = 1.0,
     ) -> None:
         self.cfg = cfg
         self.room = room
@@ -81,6 +109,11 @@ class GeminiCallerBridge:
         self.persona_system_prompt = persona_system_prompt
         self.first_speaker = first_speaker
         self.recorder = recorder
+        # Quiet-caller STT stress: scale freestyle + speech inject PCM (not noise).
+        # Gemini Live has no native volume API — post-scale PCM after the model.
+        if not 0.0 <= float(voice_gain) <= 1.0:
+            raise ValueError(f"voice_gain must be between 0.0 and 1.0 (got {voice_gain})")
+        self._voice_gain = float(voice_gain)
         # Dialog steering texts from CallerPolicy (bootstrap / reground); not PCM Script.
         self._midcall_cues = list(midcall_cues or [])
 
@@ -289,7 +322,12 @@ class GeminiCallerBridge:
             self._live_session = session
             self.writer.emit(
                 "sim.gemini_connected",
-                spec={"model": voice.model, "voice": voice.voice, "language": voice.language},
+                spec={
+                    "model": voice.model,
+                    "voice": voice.voice,
+                    "language": voice.language,
+                    "voice_gain": self._voice_gain,
+                },
                 source="sim",
                 include_dialogue=False,
             )
@@ -476,10 +514,12 @@ class GeminiCallerBridge:
                 if loop:
                     raise ValueError("loop is not supported for voice.* speech assets")
                 self.suppress_persona_output(int(duration_s * 1000) + 400)
-                self._mixer.push_speech(pcm, gain=gain)
+                speech_gain = max(0.0, min(1.0, float(gain) * self._voice_gain))
+                self._mixer.push_speech(pcm, gain=speech_gain)
                 mix = "speech"
                 await asyncio.sleep(duration_s)
             else:
+                # Noise beds use step gain only (not quiet-caller voice_gain).
                 self._mixer.push_noise(pcm, gain=gain, loop=loop)
                 mix = "parallel_loop" if loop else "parallel"
                 if not loop:
@@ -498,6 +538,7 @@ class GeminiCallerBridge:
                     "mix": mix,
                     "duration_ms": int(duration_s * 1000),
                     "gain": gain,
+                    "voice_gain": self._voice_gain,
                     "loop": bool(loop),
                 },
                 source="script",
@@ -549,7 +590,7 @@ class GeminiCallerBridge:
         """Speak a Script line via Gemini Live (same voice as freestyle caller)."""
         if self._live_session is None:
             raise RuntimeError("Gemini live session not ready for inject")
-        self._inject_playback_gain = gain
+        self._inject_playback_gain = max(0.0, min(1.0, float(gain) * self._voice_gain))
         self._inject_turn_active = True
         self._agent_audio_paused = True
         speak_directive = (
@@ -567,6 +608,8 @@ class GeminiCallerBridge:
                     "label": label,
                     "delivery": delivery,
                     "gain": gain,
+                    "voice_gain": self._voice_gain,
+                    "effective_gain": self._inject_playback_gain,
                     "attempt": 1,
                 },
                 source="script",
@@ -606,7 +649,8 @@ class GeminiCallerBridge:
             return 0
         duration_s = max(0.05, len(pcm) / 2 / TARGET_RATE)
         self.suppress_persona_output(int(duration_s * 1000) + 400)
-        self._mixer.push_speech(pcm, gain=gain)
+        speech_gain = max(0.0, min(1.0, float(gain) * self._voice_gain))
+        self._mixer.push_speech(pcm, gain=speech_gain)
         self.writer.emit(
             "sim.script_inject",
             spec={
@@ -614,6 +658,8 @@ class GeminiCallerBridge:
                 "label": label,
                 "delivery": "sapi_fallback",
                 "gain": gain,
+                "voice_gain": self._voice_gain,
+                "effective_gain": speech_gain,
                 "duration_ms": int(duration_s * 1000),
             },
             source="script",
@@ -830,13 +876,20 @@ class GeminiCallerBridge:
             return
         # Script inject / hang-up farewell must still reach the mic even if freestyle
         # hang-up mute was latching from a prior deferred goodbye.
+        # Script inject / hang-up farewell must still reach the mic even if freestyle
+        # hang-up mute was latching from a prior deferred goodbye.
         if (
             self._mute_persona_audio
             and not self._inject_turn_active
             and not self._script_hangup_farewell
         ):
             return
-        gain = self._inject_playback_gain if self._inject_turn_active else 1.0
+        # Inject path already baked voice_gain into _inject_playback_gain.
+        # Freestyle applies quiet-caller voice_gain only.
+        if self._inject_turn_active:
+            gain = self._inject_playback_gain
+        else:
+            gain = self._voice_gain
         if self._mixer is not None:
             self._mixer.push_speech(pcm, gain=gain)
             return

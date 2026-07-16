@@ -186,6 +186,15 @@ class SpeechConditionsSection:
             )
         if sc.get("noise") or sc.get("ambient"):
             bits.append("there may be background noise on the line")
+        vg = sc.get("voice_gain", sc.get("voice_volume", sc.get("volume")))
+        try:
+            if vg is not None and float(vg) < 1.0:
+                bits.append(
+                    f"your mic level may be quiet (voice_gain={float(vg):.2f}; "
+                    "simulator scales your speech audio)"
+                )
+        except (TypeError, ValueError):
+            pass
         if not bits:
             return []
         return ["Speech conditions (simulator-enforced where noted): " + "; ".join(bits) + "."]
