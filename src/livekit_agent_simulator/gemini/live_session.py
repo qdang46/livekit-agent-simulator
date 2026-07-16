@@ -481,8 +481,28 @@ class GeminiCallerBridge:
             )
             return
 
-        # Prefer local TTS for Script cue words. Gemini Live text injects often stay
-        # silent under Script-mute policy and can trip websocket 1006 mid-call.
+        # Prefer Gemini Live for gemini_text so Script cues match freestyle caller voice.
+        # Windows SAPI is fallback only (different timbre; used when Live stays silent).
+        if self._live_session is not None:
+            try:
+                await self._inject_gemini_text(text, label=label, delivery=delivery, gain=gain)
+                return
+            except Exception as gemini_err:  # noqa: BLE001
+                self.writer.emit(
+                    "sim.script.error",
+                    spec={
+                        "step_id": label,
+                        "label": label,
+                        "delivery": delivery,
+                        "error": (
+                            f"gemini_text primary failed ({type(gemini_err).__name__}: "
+                            f"{gemini_err}); trying sapi_fallback"
+                        ),
+                    },
+                    source="sim.script",
+                    include_dialogue=False,
+                )
+
         if self._mixer is not None:
             local_ms = await self._inject_sapi_fallback(text, label=label, gain=gain)
             if local_ms > 0:
@@ -490,10 +510,21 @@ class GeminiCallerBridge:
                 await asyncio.sleep(0.2)
                 return
 
+        raise RuntimeError(
+            "gemini_text inject failed: Gemini Live unavailable/silent and no local TTS"
+        )
+
+    async def _inject_gemini_text(
+        self,
+        text: str,
+        *,
+        label: str,
+        delivery: str,
+        gain: float,
+    ) -> None:
+        """Speak a Script line via Gemini Live (same voice as freestyle caller)."""
         if self._live_session is None:
-            raise RuntimeError(
-                "gemini_text inject failed: no local TTS and Gemini live session not ready"
-            )
+            raise RuntimeError("Gemini live session not ready for inject")
         self._inject_playback_gain = gain
         self._inject_turn_active = True
         self._agent_audio_paused = True
@@ -528,19 +559,9 @@ class GeminiCallerBridge:
                         break
                 await asyncio.sleep(0.05)
             if saw_ms <= 0:
-                err = "gemini_text inject produced no mic audio (model stayed silent)"
-                self.writer.emit(
-                    "sim.script.error",
-                    spec={
-                        "step_id": label,
-                        "label": label,
-                        "delivery": delivery,
-                        "error": err,
-                    },
-                    source="sim.script",
-                    include_dialogue=False,
+                raise RuntimeError(
+                    "gemini_text inject produced no mic audio (model stayed silent)"
                 )
-                raise RuntimeError(err)
             await self._drain_persona_speech(timeout_s=8.0)
             await asyncio.sleep(0.35)
         finally:
