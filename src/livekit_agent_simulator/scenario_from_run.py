@@ -480,7 +480,7 @@ def build_scenario_draft_from_run(
     if not dispatch_md:
         warnings.append(
             "Dispatch.metadata not recovered (source scenario file missing or had no Dispatch). "
-            "Add Dispatch manually if the worker needs opaque metadata."
+            "Add Dispatch manually if the agent under test needs opaque metadata."
         )
 
     criteria = _pass_criteria_from_source(scenario_file_s)

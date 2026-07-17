@@ -12,7 +12,7 @@ def _meta(run_id: str = "test-run-1234", scenario_id: str = "smoke-hello") -> di
         "scenario_file": None,
         "run_spec": {"max_turns": 4, "timeout_s": 120, "first_speaker": "user"},
         "dispatch_metadata_set": False,
-        "agent_name": "voice-ai-worker-local",
+        "agent_name": "test-agent-local",
     }
 
 
@@ -151,7 +151,7 @@ def test_draft_with_scenario_file(tmp_path: Path) -> None:
         + "\n"
         + json.dumps({"kind": "Persona", "spec": {"name": "Lan", "traits": ["polite", "chatty"], "brief": "Test", "goals": [], "style": "natural", "constraints": []}})
         + "\n"
-        + json.dumps({"kind": "Dispatch", "spec": {"metadata": '{"customAgentId":"agent_xxx"}'}})
+        + json.dumps({"kind": "Dispatch", "spec": {"metadata": '{"yourProjectKey":"agent_xxx"}'}})
         + "\n",
         encoding="utf-8",
     )
@@ -162,10 +162,11 @@ def test_draft_with_scenario_file(tmp_path: Path) -> None:
     )
     draft = build_scenario_draft_from_run(report_dir, scenario_id="my-promoted-v1")
     assert draft["scenario_id"] == "my-promoted-v1"
-    assert "agent_xxx" in draft["jsonl"] or '"customAgentId"' in draft["jsonl"]
+    # Opaque Dispatch.metadata is passed through as a JSON string — core must not
+    # interpret consumer keys (AGENTS.md). Only assert the opaque blob survived.
+    assert "agent_xxx" in draft["jsonl"]
     loc = draft["jsonl"].splitlines()
-    # Dispatch metadata is re-serialized into JSON → inner quotes get escaped
-    assert any('agent_xxx' in line for line in loc)
+    assert any("agent_xxx" in line for line in loc)
 
 
 def test_draft_missing_report_raises(tmp_path: Path) -> None:
