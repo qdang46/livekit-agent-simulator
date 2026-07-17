@@ -272,7 +272,7 @@ class Observer:
                 frame = frame_event.frame
                 pcm = bytes(frame.data)
                 if pcm:
-                    self.recorder.push_agent(pcm, 16_000)
+                    self.recorder.push_agent(pcm, 16_000, track_id=key)
         except asyncio.CancelledError:
             raise
         except Exception as e:
