@@ -1,11 +1,17 @@
-"""Promote a finished run into a draft scenario JSONL (fail → golden, P1.4).
+"""Promote a finished run into a draft scenario JSONL (fail → golden, P1.4/P2 #34).
 
 Reads ``reports/<run_id>/{meta,summary,events}`` and synthesizes an agent-sim/v1
 draft. Dispatch metadata is copied from the original scenario file when still
 present on disk; otherwise the draft omits Dispatch and notes that in Context.
 
-v1 is intentionally conservative: no full Script reverse-engineer; barge runs
-get a recovery Assert + notes. Humans/agents must review before CI promote.
+Extract quality rules (issue #34):
+- Persona.brief is a short mission statement — never a transcript paste.
+- Caller intent lands in ``goals[]`` (source persona goals preferred, else
+  intent-phrased from the first user finals) + ``constraints[]``.
+- One ``Behavior`` barge/noise stub is reconstructed from ``sim.script.cue``
+  markers in events.jsonl so a barge-fail replays deterministically.
+- Transcript sample + metrics hints live in ``Context.notes`` (author-only).
+- No full Script reverse-engineer. Humans/agents must review before CI promote.
 """
 
 from __future__ import annotations
@@ -133,6 +139,76 @@ def _pass_criteria_from_source(scenario_file: str | None) -> list[str]:
     return []
 
 
+def _behavior_from_events(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Reconstruct one Behavior barge/noise stub from run markers.
+
+    Uses the first successful ``sim.script.cue`` that fired as a cut-in
+    (``barge_in`` true, or class ``noise``/``backchannel`` during agent
+    speech). Falls back to a generic barge stub when only an ``interruption``
+    marker with ``by=sim`` exists.
+    """
+    fallback_interruption: dict[str, Any] | None = None
+    for e in events:
+        kind = str(e.get("kind") or "")
+        spec = e.get("spec") or {}
+        if not isinstance(spec, dict):
+            continue
+        if kind == "interruption" and spec.get("by") == "sim" and fallback_interruption is None:
+            fallback_interruption = spec
+            continue
+        if kind != "sim.script.cue" or spec.get("error"):
+            continue
+        icls = str(spec.get("class") or "correction")
+        barge = bool(spec.get("barge_in"))
+        during = bool(spec.get("during_agent_speech"))
+        if not barge and not (icls in ("noise", "backchannel") and during):
+            continue
+        after_ms = max(600, int(spec.get("agent_active_ms") or 0) or 600)
+        say = _redact(str(spec.get("say") or "").strip())
+        asset = spec.get("asset")
+        asset_s = str(asset).strip() if asset else None
+        if icls == "noise":
+            entry: dict[str, Any] = {
+                "id": "replay-noise-1",
+                "after_agent_ms": after_ms,
+                "say": say or "[noise]",
+            }
+            if asset_s:
+                entry["asset"] = asset_s
+            return {"false_interrupts": [entry]}
+        if icls == "backchannel" and not barge:
+            entry = {
+                "id": "replay-backchannel-1",
+                "after_agent_ms": after_ms,
+                "say": say or "uh-huh",
+            }
+            if asset_s:
+                entry["asset"] = asset_s
+            return {"backchannels": [entry]}
+        entry = {
+            "id": "replay-barge-1",
+            "after_agent_ms": after_ms,
+            "say": say or "Wait — one second —",
+            "class": icls if icls in ("correction", "question", "urgent", "backchannel") else "correction",
+        }
+        if asset_s:
+            entry["asset"] = asset_s
+        return {"barge_ins": [entry]}
+    if fallback_interruption is not None:
+        icls = str(fallback_interruption.get("class") or "correction")
+        return {
+            "barge_ins": [
+                {
+                    "id": "replay-barge-1",
+                    "after_agent_ms": 600,
+                    "say": _redact(str(fallback_interruption.get("say") or "Wait — one second —")),
+                    "class": icls if icls in ("correction", "question", "urgent", "backchannel") else "correction",
+                }
+            ]
+        }
+    return None
+
+
 def build_scenario_draft_from_run(
     report_dir: Path | str,
     *,
@@ -221,19 +297,28 @@ def build_scenario_draft_from_run(
     if not isinstance(constraints, list):
         constraints = []
 
-    goals: list[str] = []
-    for t in user_texts[:3]:
-        goals.append(t[:160] + ("…" if len(t) > 160 else ""))
+    # Goals: source persona goals win; else intent-phrased from user finals —
+    # never a raw transcript dump (issue #34).
+    src_goals = src_persona.get("goals")
+    goals: list[str] = [str(g).strip() for g in src_goals if str(g).strip()] if isinstance(src_goals, list) else []
     if not goals:
-        goals = ["Revisit the situation observed in the source run", "End the call politely"]
+        if user_texts:
+            first = user_texts[0][:120] + ("…" if len(user_texts[0]) > 120 else "")
+            goals.append(f'Open with the same request as the source run: "{first}"')
+            if len(user_texts) > 1:
+                goals.append("Follow up naturally, mirroring the caller path from the source run")
+        else:
+            goals.append("Revisit the situation observed in the source run")
+        goals.append("End the call politely")
 
-    snippet = " | ".join(user_texts[:4])[:400]
+    if not constraints:
+        constraints = ["Stay natural and spoken; never mention being a simulation or a test"]
+
+    # Brief: short mission statement only — transcript sample goes to Context.notes.
     brief_bits = [
         f"Promoted from run `{source_run_id}` (source scenario `{source_scenario}`).",
-        "Replay a similar caller path; stay natural and spoken.",
+        "Replay a similar caller path; pursue the listed goals, stay natural and spoken.",
     ]
-    if snippet:
-        brief_bits.append(f"Caller said approximately: {snippet}")
     if src_persona.get("brief"):
         brief_bits.append(f"Original brief (reference): {_redact(str(src_persona['brief'])[:300])}")
     brief = " ".join(brief_bits)
@@ -245,9 +330,12 @@ def build_scenario_draft_from_run(
         barge_count = int(behavior.get("barges_fired") or 0)
 
     warnings: list[str] = [
-        "DRAFT — review Persona/Assert before promoting to CI.",
+        "DRAFT — review Persona goals/constraints, Behavior, and Assert before promoting to CI.",
         "PII redaction is best-effort (email/phone/card patterns only).",
     ]
+
+    behavior_spec = _behavior_from_events(events)
+    has_barge_stub = bool(behavior_spec and behavior_spec.get("barge_ins"))
 
     outcomes: list[dict[str, Any]] = []
     if agent_texts:
@@ -260,7 +348,7 @@ def build_scenario_draft_from_run(
                 "phrases": ["a", "e", "i", "o", "u"],
             }
         )
-    if barge_count > 0:
+    if barge_count > 0 or has_barge_stub:
         outcomes.append(
             {
                 "id": "recovered_after_barge",
@@ -269,9 +357,19 @@ def build_scenario_draft_from_run(
                 "min_interruptions": 0,
             }
         )
+        if behavior_spec:
+            warnings.append(
+                f"Source run had barge_count={barge_count}; Behavior stub + recovery Assert "
+                "reconstructed from run markers — review timing (after_agent_ms) before CI."
+            )
+        else:
+            warnings.append(
+                f"Source run had barge_count={barge_count} but no sim.script.cue markers to "
+                "reconstruct; recovery Assert added — re-add Script/Behavior barge cues manually."
+            )
+    elif behavior_spec:
         warnings.append(
-            f"Source run had barge_count={barge_count}; recovery Assert added. "
-            "Re-add Script/Behavior barge cues if you need deterministic cut-ins."
+            "Behavior noise stub reconstructed from run markers — review before CI."
         )
 
     # optional latency comment values from metrics (not auto-assert — too tight for cold starts)
@@ -316,6 +414,9 @@ def build_scenario_draft_from_run(
         f"judge={verdict.get('verdict') or 'n/a'}). "
         f"Observed metrics: ttfw_ms={ttfw}, turn_p95_ms={tt.get('p95')}, barge_count={barge_count}."
     )
+    snippet = " | ".join(user_texts[:4])[:400]
+    if snippet:
+        notes += f" Caller transcript sample (reference only): {snippet}"
     if latency_hint:
         notes += (
             " Optional latency Assert (not auto-added): "
@@ -324,6 +425,9 @@ def build_scenario_draft_from_run(
 
     lines: list[str] = [
         f"// DRAFT from run {source_run_id} — review before CI",
+        "// Review checklist: 1) goals[] match the caller's real intent (not transcript echoes)",
+        "// 2) Behavior barge/noise timing (after_agent_ms) fits your agent  3) tighten Assert",
+        "// outcomes beyond the weak agent_spoke stub  4) confirm Dispatch metadata.",
         json.dumps(
             {
                 "apiVersion": "agent-sim/v1",
@@ -388,6 +492,14 @@ def build_scenario_draft_from_run(
                 separators=(",", ":"),
             )
         )
+    if behavior_spec:
+        lines.append(
+            json.dumps(
+                {"kind": "Behavior", "spec": behavior_spec},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
     if outcomes:
         lines.append(
             json.dumps(
@@ -422,10 +534,12 @@ def build_scenario_draft_from_run(
         "warnings": warnings,
         "notes": notes,
         "latency_hint": latency_hint,
+        "behavior": behavior_spec,
         "stats": {
             "user_finals": len(user_texts),
             "agent_finals": len(agent_texts),
             "barge_count": barge_count,
+            "behavior_stub": bool(behavior_spec),
             "duration_ms": summary.get("duration_ms"),
             "status": status,
         },

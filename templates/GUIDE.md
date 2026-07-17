@@ -335,10 +335,19 @@ lks scenario-from-run <run-id> --root /path/to/target --write
 lks validate from-my-source-xxxx --root /path/to/target
 ```
 
-The draft recovers Persona, Dispatch, Execute spec, and run stats from the source report.
-It adds a basic transcript Assert + recovery Assert (when barges present).
-``Context.notes`` carries the source run_id, judge info, and metric hints.
-**Review before promoting** — the draft is a starting point, not a golden assertion.
+The draft recovers Persona, Dispatch, Execute spec, and run stats from the source report:
+
+- **Persona.brief** stays a short mission statement — caller intent goes to `goals[]`
+  (source persona goals preferred, else intent-phrased from the first user finals) and
+  `constraints[]`. The raw transcript sample lives only in `Context.notes` (author-only).
+- **Behavior stub**: if the run had a sim cut-in, one `Behavior` barge/noise/backchannel
+  entry is reconstructed from `sim.script.cue` markers (say, class, `after_agent_ms` from
+  observed agent-active time), so a barge-fail replays deterministically.
+- **Asserts**: basic transcript Assert + recovery Assert (when barges present).
+- ``Context.notes`` carries the source run_id, judge info, and metric hints.
+
+**Review before promoting** — the draft header includes a review checklist (goals,
+Behavior timing, Assert tightening, Dispatch). It is a starting point, not a golden assertion.
 
 `first_speaker`:
 
