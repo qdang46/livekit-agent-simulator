@@ -9,7 +9,7 @@
 1. **Never import or edit the agent-under-test application source** (no patches to agent business code). Only create/edit files under `<target>/.agent-sim/` (gitignored).
 2. **Never commit secrets.** `.agent-sim/` must stay gitignored. Do not paste API keys into git-tracked files.
 3. **Do not invent LiveKit / Gemini credentials or dispatch metadata.** Discover from the target repo (§4.0) or ask the user. Read `.env` only with permission.
-4. **Discover before `AskQuestion`.** Read target docs and existing `.agent-sim/` (read-only). Do not assume consumer-specific file paths or metadata keys (e.g. one repo’s `job-metadata.ts` or `customAgentId` is not universal).
+4. **Discover before `AskQuestion`.** Read target docs and existing `.agent-sim/` (read-only). Do not assume consumer-specific file paths or metadata keys (e.g. one repo’s `job-metadata.ts` or `yourProjectKey` is not universal).
 5. Prefer **non-interactive** commands. Use `--root <absolute-path>` always.
 6. Prefer the **portable installer** (no uv/pip on the user machine) unless the user is developing the simulator package itself.
 7. **Primary CLI is `lks`** (short). **`lk-sim` remains a supported alias** for scripts and older docs. Runtime IDs stay `lk-sim-caller` / room prefix `lk-sim-<run-id>`.
@@ -281,7 +281,7 @@ More consumer wiring notes: [portability.md](../portability.md).
 
 ### 4.0 Discover consumer repo (before `AskQuestion`)
 
-`lks` is **target-agnostic**. Each consumer defines its own dispatch metadata keys, data topics, and docs layout. **Do not hardcode paths or field names from one repo** (e.g. `bootstrap/job-metadata.ts`, `customAgentId`) in this guide or in setup steps.
+`lks` is **target-agnostic**. Each consumer defines its own dispatch metadata keys, data topics, and docs layout. **Do not hardcode paths or field names from one repo** (e.g. `bootstrap/job-metadata.ts`, `yourProjectKey`) in this guide or in setup steps.
 
 Read-only discovery in `TARGET_ROOT` (in order):
 
