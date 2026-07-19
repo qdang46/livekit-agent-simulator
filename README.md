@@ -9,8 +9,8 @@
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%E2%80%933.13-blue.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/quangdang46/livekit-agent-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/quangdang46/livekit-agent-simulator/actions/workflows/ci.yml)
-[![GitHub release](https://img.shields.io/github/v/release/quangdang46/livekit-agent-simulator)](https://github.com/quangdang46/livekit-agent-simulator/releases)
+[![CI](https://github.com/quangdang46/livekit_agent_simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/quangdang46/livekit_agent_simulator/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/quangdang46/livekit_agent_simulator)](https://github.com/quangdang46/livekit_agent_simulator/releases)
 
 </div>
 
@@ -21,7 +21,7 @@ Standalone MCP server + CLI (`lks`, alias: `lk-sim`). Black-box testing: no impo
 <h3>Quick Install</h3>
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" \
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/install.sh?$(date +%s)" \
   | bash -s -- --verify
 ```
 
@@ -33,7 +33,7 @@ Paste into Claude Code, Cursor, Codex, AmpCode, Windsurf, or any coding agent **
 
 ```text
 Install and configure livekit-agent-simulator (CLI: lks) for this project by following the instructions here:
-https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md
+https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/docs/guide/installation.md
 
 Target project root is this workspace. Use absolute --root paths. Install the portable CLI if missing, run lks init, help fill .agent-sim/config.yaml from my local env or ask me for LiveKit + Gemini + agent_name, ensure .agent-sim is gitignored, run preflight, and stop before execute if the voice agent worker is not running. Do not edit agent application source outside .agent-sim/.
 ```
@@ -41,7 +41,7 @@ Target project root is this workspace. Use absolute --root paths. Install the po
 Same idea, one line:
 
 ```text
-Install and configure livekit-agent-simulator by following: https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md
+Install and configure livekit-agent-simulator by following: https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/docs/guide/installation.md
 ```
 
 ---
@@ -89,7 +89,7 @@ Voice agents fail in ways unit tests never see:
 
 ```bash
 # Install once
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" \
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/install.sh?$(date +%s)" \
   | bash -s -- --verify
 
 # In the repo you want to test (agent worker must already be running)
@@ -186,20 +186,20 @@ Mode details and config: [docs/telephony.md](docs/telephony.md). Templates: `inb
 
 ```bash
 # macOS / Linux
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" \
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/install.sh?$(date +%s)" \
   | bash -s -- --verify
 ```
 
 ```powershell
 # Windows PowerShell
-irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile "$env:TEMP\lk-sim-install.ps1"
+irm "https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/install.ps1" -OutFile "$env:TEMP\lk-sim-install.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\lk-sim-install.ps1" -Verify
 ```
 
 Also available from a release asset:
 
 ```bash
-curl -fsSL "https://github.com/quangdang46/livekit-agent-simulator/releases/download/v0.1.0/install.sh" \
+curl -fsSL "https://github.com/quangdang46/livekit_agent_simulator/releases/download/v0.1.0/install.sh" \
   | bash -s -- --verify
 ```
 
@@ -214,12 +214,12 @@ By default the installer registers the MCP server `livekit-agent-simulator` (`lk
 
 **Agent-oriented install playbook (long form):** [docs/guide/installation.md](docs/guide/installation.md)  
 Raw URL for paste into agents:  
-`https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md`
+`https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/docs/guide/installation.md`
 
 ### From source (maintainers / contributors)
 
 ```bash
-git clone https://github.com/quangdang46/livekit-agent-simulator.git
+git clone https://github.com/quangdang46/livekit_agent_simulator.git
 cd livekit-agent-simulator
 uv sync --extra dev
 uv run lks --help
@@ -444,7 +444,7 @@ lks web --root /path/to/target
 ```bash
 lks mcp   # must be what the host launches
 # or reinstall without --no-mcp
-curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" \
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit_agent_simulator/main/install.sh?$(date +%s)" \
   | bash -s -- --verify
 ```
 
