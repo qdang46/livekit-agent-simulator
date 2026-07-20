@@ -13,7 +13,7 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 | Topic | URL |
 |-------|-----|
 | First-time install + `init` + preflight | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/guide/installation.md |
-| Verify plugins (full API) | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md |
+| Plugins — verify + before_run / after_run (full API) | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md |
 | Consumer dispatch / data topics / tool patterns | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
 | Caller barge / silence / hang-up patterns | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/caller-pattern-plan.md |
 | Package rules for coding agents | https://github.com/quangdang46/livekit-agent-simulator/blob/main/AGENTS.md |
@@ -176,7 +176,7 @@ lks scenario-init my-case --root /path/to/target
 | `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`, `hang_ups`) |
 | `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
 | `Assert` | no | tools / transcript / **`sip`** / **`tool_order`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, **`goals_met`**, **`constraint_respected`**, `llm_bool`) |
-| `Plugins` | no | Load local verify modules — see **Verify plugins** below |
+| `Plugins` | no | Load local modules (verify + lifecycle hooks) — see **Plugins** below |
 | `PassCriteria` | no | Soft LLM judge rubric — flat `criteria[]` **or** `judges[]` + `mode` (`all` \| `majority` \| `any`) |
 
 ### Hold / agent dead-air timeout (`hold_music_timeout_s`)
@@ -265,10 +265,15 @@ lks cues --root /path/to/target --resolve builtin:voice.barge_short
 
 WAV: **PCM16 mono @ 24 kHz**. Prefer `voice.*` for audible barge-in; noise for beds/bursts. Details: https://github.com/quangdang46/livekit-agent-simulator/blob/main/templates/cues/README.md
 
-### Verify plugins (custom Script checks)
+### Plugins (verify + lifecycle hooks)
 
-Extend `Script.verify` with project-specific checks on `events.jsonl` — no fork of the sim package.
-Full API: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md
+Three registration kinds (full API: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md):
+
+| Kind | When | Purpose |
+|------|------|---------|
+| **Verify** (`@verify_plugin`) | After the call, in `script_verify` | Custom checks over `events.jsonl` — referenced from `Script.verify` |
+| **before_run** (`@register_before_run`) | After prepare, **before** SimLeg connects | Enrich `meta`, set up external resources |
+| **after_run** (`@register_after_run`) | After finalize, just before execute returns | Notify CI/Slack, archive reports |
 
 **1. Copy and edit the example**
 
@@ -283,13 +288,18 @@ cp templates/plugins/example_verify.py /path/to/target/.agent-sim/plugins/my_che
 {"kind":"Plugins","spec":{"modules":["my_checks"]}}
 ```
 
-**3. Wire plugins on Script verify** (built-in checks still run first)
+Loading the module registers **all** verify + lifecycle hooks in that file.
+Lifecycle hooks need no Script reference; only **verify** names are wired below.
+
+**3. Wire verify plugins on Script** (built-in checks still run first)
 
 ```jsonl
 {"kind":"Script","spec":{"steps":[{"id":"bc","trigger":"agent_speaking","delay_ms":900,"say":"uh-huh","delivery":"gemini_text"}],"verify":{"require_during_agent_speech":true,"min_agent_finals_after_first_cue":1,"plugins":["example_backchannel_continue"],"plugin_options":{"example_backchannel_continue":{"min_agent_finals":1}}}}}
 ```
 
-Discover loaded plugins:
+`plugin_options` is also passed to lifecycle hooks as `ctx.options`.
+
+Discover loaded **verify** plugins:
 
 ```bash
 lks plugins --root /path/to/target

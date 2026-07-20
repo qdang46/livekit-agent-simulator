@@ -179,11 +179,12 @@ $TARGET_ROOT/.agent-sim/
   config.yaml          # secrets go here (gitignored)
   scenarios/smoke-hello.jsonl
   reports/
-  plugins/example_verify.py
+  plugins/example_verify.py   # verify + optional before_run / after_run hooks
   cues/README.md
 ```
 
-And ensures `.agent-sim/` is listed in `$TARGET_ROOT/.gitignore`.
+Plugin API (verify + lifecycle): [plugins.md](../plugins.md). Ops detail: `lks guide`.
+Re-running `init` also ensures `.agent-sim/` is listed in `$TARGET_ROOT/.gitignore`.
 
 **Idempotent:** re-running `init` does **not** overwrite existing `config.yaml`, scenarios, or reports — only creates missing scaffold files.
 
@@ -714,6 +715,7 @@ lks preflight --root $TARGET_ROOT
 | Installer (Windows) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1 |
 | This guide (raw) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md |
 | Ops guide | package `lks guide` or `templates/GUIDE.md` (voice, cues, plugins) |
+| Plugins (verify + before_run / after_run) | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/plugins.md |
 | Portability | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
 | Telephony (SIP modes) | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/telephony.md |
 | Smoke notes | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/smoke-test.md |
