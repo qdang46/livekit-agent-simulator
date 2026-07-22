@@ -40,12 +40,19 @@ class DefaultCallerPolicy:
         user input before audio; SI alone often stays silent.
         """
         cues: list[MidcallCue] = []
+        verbosity = ctx.resolved_verbosity()
         if ctx.first_speaker == "user" and not ctx.script_steps:
+            if verbosity == "quiet":
+                open_hint = "greet briefly and state why you are calling in one short clause"
+            elif verbosity == "chatty":
+                open_hint = "greet and state why you are calling in a natural opening turn"
+            else:
+                open_hint = "greet briefly and state why you are calling in one natural turn"
             cues.append(
                 MidcallCue(
                     text=(
-                        "(The call just connected. You speak first per PERSONA: "
-                        "greet briefly and state why you are calling in one short turn.)"
+                        f"(The call just connected. You speak first per PERSONA: "
+                        f"{open_hint}.)"
                     ),
                     kind="bootstrap",
                     label="first_speaker_user",
@@ -65,12 +72,23 @@ class DefaultCallerPolicy:
                 )
             )
         if ctx.script_steps:
+            if verbosity == "quiet":
+                between = "answer questions in one short spoken clause;"
+            elif verbosity == "chatty":
+                between = (
+                    "answer questions in up to about four spoken clauses "
+                    "(one tangential detail OK);"
+                )
+            else:
+                between = (
+                    "answer questions in 1–3 natural spoken clauses "
+                    "(one brief detail OK);"
+                )
             cues.append(
                 MidcallCue(
                     text=(
                         "(Timed Script overlay is active. Do not say bye / goodbye / [END_CALL]. "
-                        "Between cues, answer questions in 1–2 natural sentences; "
-                        "the simulator will hang up.)"
+                        f"Between cues, {between} the simulator will hang up.)"
                     ),
                     kind="reground",
                     label="script_no_early_bye",

@@ -352,8 +352,10 @@ class ScriptRunner:
                         source="sim.script",
                         include_dialogue=False,
                     )
-                if hold_silence_ms > 0 and inject_error is None:
-                    self.bridge.suppress_persona_output(hold_silence_ms)
+                # Line / speak cues: inject_cue already drains TTS for the line.
+                # Do NOT apply silence_after_cue_ms as a multi-second freestyle mute —
+                # that contradicted hybrid SI ("continue until next cue").
+                # Intentional caller silence: action=wait + silence_after_cue_ms (above).
                 # Forensic: mark sim-initiated cut-in so summary/web show interrupted turns.
                 if step.barge_in and during_agent_speech and inject_error is None:
                     icls = step.interrupt_class or "correction"

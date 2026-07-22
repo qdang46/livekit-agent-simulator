@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from .policy import CallerPolicyContext
+from .policy import CallerPolicyContext, Verbosity
 
 
 @runtime_checkable
@@ -21,6 +21,85 @@ class PromptSection(Protocol):
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         """Return zero or more lines (no trailing join)."""
         ...
+
+
+# Free-text style phrases that fight natural/chatty length bands (not locale-parsed
+# into verbosity — only neutralized when an explicit band is active).
+_STYLE_LENGTH_CONFLICTS = (
+    "short turns",
+    "terse replies",
+    "brief replies",
+    "brief answers",
+    "one-word answers",
+    "one word answers",
+    "keep it short",
+    "keep replies short",
+    "keep answers short",
+)
+
+
+def length_guidance(verbosity: Verbosity) -> str:
+    """Shared utterance-length band for Role / Script / Guardrails / midcall."""
+    if verbosity == "quiet":
+        return (
+            "Keep each utterance to about one short spoken clause "
+            "(sparse phone speech; no padding)."
+        )
+    if verbosity == "chatty":
+        return (
+            "Speak in up to about four spoken clauses when helpful; "
+            "you may add one tangential detail, but stay goal-bound — no monologues."
+        )
+    return (
+        "Speak in 1–3 spoken clauses like a real phone caller: "
+        "answer what was asked, then add one brief situational detail when it helps "
+        "(for example why you need help, or what already went wrong) — not a monologue."
+    )
+
+
+def neutralize_style_length_hints(style: str, verbosity: Verbosity) -> tuple[str, bool]:
+    """Strip known brevity phrases when verbosity is natural/chatty.
+
+    Returns (cleaned_style, did_strip). Quiet keeps style verbatim.
+    """
+    raw = str(style or "").strip()
+    if not raw or verbosity == "quiet":
+        return raw, False
+    cleaned = raw
+    stripped = False
+    lower = cleaned.lower()
+    for phrase in _STYLE_LENGTH_CONFLICTS:
+        idx = lower.find(phrase)
+        while idx >= 0:
+            stripped = True
+            end = idx + len(phrase)
+            cleaned = cleaned[:idx] + cleaned[end:]
+            lower = cleaned.lower()
+            idx = lower.find(phrase)
+    # Tidy leftover separators from removals: "warm; ; everyday" / trailing ";"
+    parts = [p.strip(" ,;") for p in cleaned.replace(";", ",").split(",")]
+    cleaned = ", ".join(p for p in parts if p)
+    return cleaned, stripped
+
+
+def between_cues_answer_guidance(verbosity: Verbosity) -> str:
+    """Between-Script-cue answer length (hybrid mode)."""
+    if verbosity == "quiet":
+        return (
+            "Between Script cues: if the assistant asks a direct question, "
+            "answer in one short spoken clause."
+        )
+    if verbosity == "chatty":
+        return (
+            "Between Script cues: if the assistant asks a direct question, "
+            "answer naturally in up to about four spoken clauses; "
+            "you may add one tangential detail, then continue until the next cue."
+        )
+    return (
+        "Between Script cues: if the assistant asks a direct question, "
+        "answer in 1–3 natural phone clauses — answer first, then one brief detail "
+        "when it helps — then continue freestyle until the next cue."
+    )
 
 
 def _step_overlay(step: Any) -> str:
@@ -55,12 +134,13 @@ class RoleSection:
 
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         lang = ctx.locale
+        verbosity = ctx.resolved_verbosity()
         lines = [
             "## PERSONA",
             "You are role-playing a HUMAN CALLER on a phone call with a voice assistant.",
             "You are NOT an assistant, agent, or support worker. Never offer help; you are the customer.",
             f"RESPOND IN {lang}. YOU MUST RESPOND UNMISTAKABLY IN {lang}.",
-            "Keep every utterance short and natural like real phone speech (1-2 sentences).",
+            length_guidance(verbosity),
             "Never mention that you are an AI, a simulation, a test, or a judge.",
         ]
         p = ctx.persona
@@ -100,7 +180,8 @@ class GoalsSection:
                     "",
                     "Rules when a Script overlay is present (hybrid / interaction):",
                     "1. You still pursue goals through natural answers when the assistant asks.",
-                    "2. Forced Script lines are injected as SIMULATOR CUE — speak that line once.",
+                    "2. Forced Script lines are injected as SIMULATOR CUE — speak that line once "
+                    "as a milestone, then continue freestyle until the next cue.",
                     "3. Audio fixtures (barge WAV, noise, backchannel) are simulator-owned — do not invent barges.",
                     "4. Do NOT freestyle goodbye / [END_CALL]; Script hang-up ends the call.",
                 ]
@@ -126,8 +207,16 @@ class StyleTraitsSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         lines: list[str] = []
         p = ctx.persona
+        verbosity = ctx.resolved_verbosity()
         if p.get("style"):
-            lines.append(f"Speaking style: {p['style']}")
+            cleaned, scrubbed = neutralize_style_length_hints(str(p["style"]), verbosity)
+            if cleaned:
+                lines.append(f"Speaking style: {cleaned}")
+            if verbosity != "quiet" and (scrubbed or p.get("style")):
+                lines.append(
+                    "Utterance length follows speech_conditions.verbosity — "
+                    "style brevity hints do not override it."
+                )
         traits = ctx.traits()
         if traits:
             from ..persona_traits import expand_traits
@@ -138,6 +227,25 @@ class StyleTraitsSection:
             )
             lines.extend(expand_traits(traits))
         return lines
+
+
+class NaturalSpeechSection:
+    """Occasional fillers / hesitation — natural and chatty bands only."""
+
+    def render(self, ctx: CallerPolicyContext) -> list[str]:
+        if ctx.resolved_verbosity() == "quiet":
+            return []
+        return [
+            "",
+            "## NATURAL SPEECH",
+            "Sound like a real caller: occasional brief hesitation sounds are OK "
+            "(use standard spellings such as um, uh, or well — not elongated nonsense).",
+            "Do not pad every turn with fillers; use them sparingly when thinking or softening a reply.",
+            "Examples of natural freestyle (dialogue, or between Script cues when asked): "
+            '"Um, yeah — I need to move Tuesday\'s appointment because of a work conflict." '
+            'or "Well, the order never showed up, so I\'m calling to track it."',
+            "Stay goal-bound; do not invent goodbye while Script steps remain.",
+        ]
 
 
 class ConstraintsSection:
@@ -250,15 +358,17 @@ class ScriptTimingSection:
         n = len(ctx.script_steps)
         n_fix = sum(1 for s in ctx.script_steps if _step_overlay(s) == "fixture")
         n_line = sum(1 for s in ctx.script_steps if _step_overlay(s) == "line")
+        verbosity = ctx.resolved_verbosity()
         return [
             "",
             "## SCRIPT OVERLAY (simulator-owned timing)",
             f"This call has {n} timed Script step(s) "
             f"({n_line} forced line(s), {n_fix} audio fixture(s)).",
             "Script is an OVERLAY on your persona dialogue — not a full script of the whole call.",
-            "Forced lines: when you receive a SIMULATOR CUE, speak that line aloud once immediately.",
+            "Forced lines: when you receive a SIMULATOR CUE, speak that line aloud once as a "
+            "milestone, then continue naturally until the next cue.",
             "Fixtures (barge WAV, noise, soft barge, DTMF): injected as audio — do not invent them.",
-            "Between Script cues: if the assistant asks a direct question, answer in 1–2 natural phone sentences.",
+            between_cues_answer_guidance(verbosity),
             "Do NOT freestyle barge-ins or goodbye / [END_CALL] while Script steps remain.",
             "Only the final Script hang-up step ends the call. Freestyle farewell will FAIL the test.",
         ]
@@ -285,9 +395,22 @@ class FirstSpeakerSection:
                 "Wait for the assistant to greet you first, then respond "
                 "(unless a simulator cue tells you otherwise).",
             ]
+        verbosity = ctx.resolved_verbosity()
+        if verbosity == "quiet":
+            open_hint = "greet briefly and state why you are calling (one short clause)"
+        elif verbosity == "chatty":
+            open_hint = (
+                "greet and state why you are calling "
+                "(a natural opening turn; stay goal-bound)"
+            )
+        else:
+            open_hint = (
+                "greet briefly and state why you are calling "
+                "(one natural opening turn)"
+            )
         return [
-            "You speak first: after the call connects, greet briefly and state why "
-            "you are calling (one short turn). Do this from persona — no separate cue.",
+            f"You speak first: after the call connects, {open_hint}. "
+            "Do this from persona — no separate cue.",
         ]
 
 
@@ -295,6 +418,28 @@ class GuardrailsSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         n = len(ctx.goals())
         has_script = bool(ctx.script_steps)
+        verbosity = ctx.resolved_verbosity()
+        if has_script:
+            if verbosity == "quiet":
+                between = (
+                    "If the assistant asks a direct question between Script cues, "
+                    "answer in one short spoken clause; "
+                    "do not start a long freestyle monologue or goodbye."
+                )
+            elif verbosity == "chatty":
+                between = (
+                    "If the assistant asks a direct question between Script cues, "
+                    "answer naturally (up to about four clauses); "
+                    "do not start a goodbye or unbounded monologue."
+                )
+            else:
+                between = (
+                    "If the assistant asks a direct question between Script cues, "
+                    "answer in 1–3 natural clauses; "
+                    "do not start a long freestyle monologue or goodbye."
+                )
+        else:
+            between = "If the assistant says something irrelevant, steer back to your current goal."
         lines = [
             "",
             "## GUARDRAILS",
@@ -305,18 +450,13 @@ class GuardrailsSection:
                 else "Only end the call when ALL goals are done (or unmistakably impossible after you tried)."
             ),
             "If you say goodbye or [END_CALL] early, the automated test will FAIL.",
-            (
-                "If the assistant asks a direct question between Script cues, answer in 1–2 natural sentences; "
-                "do not start a long freestyle monologue or goodbye."
-                if has_script
-                else "If the assistant says something irrelevant, steer back to your current goal."
-            ),
+            between,
         ]
         if has_script:
             lines.extend(
                 [
                     "Script overlay active: do NOT freestyle a goodbye or barge outside Script cues.",
-                    "Natural short answers to the assistant are OK; wait for the simulator hang-up cue to end the call.",
+                    "Natural answers to the assistant are OK; wait for the simulator hang-up cue to end the call.",
                 ]
             )
         else:
@@ -348,6 +488,7 @@ def build_default_sections() -> list[PromptSection]:
         RoleSection(),
         GoalsSection(),
         StyleTraitsSection(),
+        NaturalSpeechSection(),
         ConstraintsSection(),
         SpeechConditionsSection(),
         ContextSection(),
