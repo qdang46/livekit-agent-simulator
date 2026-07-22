@@ -516,7 +516,10 @@ These are **not** required for install — use when writing scenarios under `.ag
 | `Persona.speech_conditions.voice_gain` (`0.0`–`1.0`) | Quiet-caller STT stress (scales speech PCM after Gemini Live; not noise beds) |
 | `Persona.speech_conditions.silent_mode: true` | Unresponsive / dead-air caller (no freestyle, no nudge, no auto barge/noise) |
 | `Persona.speech_conditions.interruption_rate` | Recurring barge while agent speaks (`none`/`low`/`medium`/`high`; parallel timer) |
+| `Persona.speech_conditions.verbosity` (`quiet` / `natural` / `chatty`) | Caller length band (default **`natural`** if omitted). Free-text `style` is **not** parsed for verbosity; under `natural`/`chatty`, known brevity phrases (`short turns`, …) are stripped so they cannot fight the band. Traits `quiet`/`silent`/`terse` → quiet; `chatty` → chatty; explicit `verbosity` wins. Use `quiet` for VAD/terse fixtures. |
 | `Execute.spec.hold_music_timeout_s` | Hang up after N s of **agent** dead air (5–300; Persona alias ok) |
+| Script `action: wait` + `silence_after_cue_ms` | Intentional caller silence hold (suppresses freestyle). On `action: speak`, `silence_after_cue_ms` does **not** long-mute freestyle after the line. |
+| Soft metrics `user_words_natural_*` | Freestyle word stats excluding Script-matched finals; prefer over overall `user_words_p50` for naturalness on Script-heavy packs |
 | `noise_when: "background"` / Script `"loop": true` | Continuous ambient noise under the call |
 | `lks validate` → `authoring.tier` / `warning_codes` | Soft authoring quality gate (no LLM; does not flip `valid`) |
 
