@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 SUPPORTED_TRIGGERS = frozenset({"agent_speaking", "silence", "time"})
-SUPPORTED_ACTIONS = frozenset({"speak", "wait", "hang_up"})
+SUPPORTED_ACTIONS = frozenset({"speak", "wait", "hang_up", "dtmf"})
 
 # Hamming-aligned mid-call input classes (P1.F). JSON field name: ``class``.
 INTERRUPTION_CLASSES = frozenset(
@@ -81,7 +81,10 @@ class ScriptStep:
     silence_after_cue_ms: int = 0
     action: str = "speak"
 
-    # Continuous ambient bed for room_pcm noise (re-queues until hang-up).
+    # DTMF digit string: only valid when action="dtmf".
+    # characters 0-9*#w (w = wait 120ms gap).
+    digits: str = ""
+        # Continuous ambient bed for room_pcm noise (re-queues until hang-up).
     # Distinct from once= (fire this step once). Only valid with delivery=room_pcm.
     loop: bool = False  # speak | wait | hang_up
     # For silence trigger: only start counting idle after agent has spoken once.

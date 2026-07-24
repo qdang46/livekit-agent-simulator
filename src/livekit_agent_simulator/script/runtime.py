@@ -199,6 +199,34 @@ class ScriptRunner:
             during_agent_speech = bool(self.observer.agent_is_active_speaker)
 
             hold_silence_ms = int(step.silence_after_cue_ms or 0)
+            if step.action == "dtmf":
+                kind = "sim.script.dtmf"
+                digits = getattr(step, "digits", "") or ""
+                if digits:
+                    try:
+                        sim_room = getattr(self.bridge, "room", None)
+                        if sim_room is not None:
+                            local = sim_room.local_participant
+                            if local is not None:
+                                DMAP = {
+                                    "0":0,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,
+                                    "8":8,"9":9,"*":10,"#":11,
+                                }
+                                for ch in digits:
+                                    if ch == "w":
+                                        await asyncio.sleep(0.12)
+                                    elif ch in DMAP:
+                                        try:
+                                            await local.publish_dtmf(code=DMAP[ch], digit=ch)
+                                        except Exception as e:
+                                            inject_error = f"{type(e).__name__}: {e}"
+                                            break
+                                        await asyncio.sleep(0.15)
+                                    else:
+                                        inject_error = f"unknown DTMF char {ch!r}"
+                                        break
+                    except Exception as e:
+                        inject_error = f"{type(e).__name__}: {e}"
             if step.action == "wait":
                 kind = "sim.script.wait"
                 # User long-silence: suppress persona TTS, pause dead_call, hold duration.
@@ -385,8 +413,9 @@ class ScriptRunner:
                     "barge_in": step.barge_in,
                     "class": step.interrupt_class,
                     "overlay": effective_overlay(step),
-                    "delivery": step.delivery if step.action != "wait" else None,
-                    "asset": step.asset if step.action != "wait" else None,
+                    "delivery": step.delivery if step.action not in ("wait", "dtmf") else None,
+                    "asset": step.asset if step.action not in ("wait", "dtmf") else None,
+                    "digits": step.digits if step.action == "dtmf" else None,
                     "gain": step.gain if step.action == "speak" else None,
                     "loop": bool(getattr(step, "loop", False)) if step.action == "speak" else None,
                     "waited_ms": waited_ms,
